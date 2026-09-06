@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#070a14">
+<title>GTA5RP HUB</title>
+<link rel="icon" type="image/x-icon" href="Icon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+</head>
+<body>
+
+<div class="bg-fx" aria-hidden="true"></div>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="btn btn-icon menu-btn" id="menuBtn" title="Меню">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <h1 class="page-title" id="pageTitle">GTA5RP HUB</h1>
+      <div class="topbar-right" id="topbarRight"></div>
+      <div class="topbar-datetime" id="topbarDateTime"></div>
+    </header>
+
+    <main class="content">
+
+      <section class="panel" id="panel-dashboard"><div id="dashboardRoot"></div></section>
+
+      <section class="panel" id="panel-leaders">
+        <div class="toolbar">
+          <div class="stats-row" id="statsRow"></div>
+          <div class="toolbar-right">
+            <label class="search-box">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input type="search" id="leaderSearch" placeholder="Фракция или ник" autocomplete="off">
+            </label>
+            <button class="btn btn-icon" id="refreshBtn" title="Обновить данные">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="update-note" id="updateNote"></div>
+        <div id="leadersRoot"></div>
+      </section>
+
+      <section class="panel" id="panel-archive">
+        <div class="toolbar">
+          <label class="search-box">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="archiveSearch" placeholder="Фракция, лидер или результат" autocomplete="off">
+          </label>
+          <div class="toolbar-right">
+            <label class="check-inline" id="archiveDeletedWrap" hidden><input type="checkbox" id="archiveShowDeleted"> Показать удалённые</label>
+            <button class="btn btn-primary" id="archiveAddBtn" hidden>Добавить запись</button>
+          </div>
+        </div>
+        <div id="archiveRoot"></div>
+      </section>
+
+      <section class="panel" id="panel-news"><div id="newsRoot"></div></section>
+
+      <section class="panel" id="panel-reports">
+        <div class="locked" id="reportsLocked" hidden></div>
+        <div id="reportsBody">
+          <div class="report-layout">
+            <div class="card form-card">
+              <h3 id="reportFormTitle">Новый отчёт</h3>
+              <div class="field"><label for="reportFaction">Фракция</label><select id="reportFaction"></select></div>
+              <div class="field"><label for="reportName">Имя лидера</label><input type="text" id="reportName" maxlength="120" placeholder="Никнейм лидера"></div>
+              <div class="field"><label for="reportDate">Дата отчёта</label><input type="date" id="reportDate"></div>
+              <div class="field"><label for="reportProblems">Основные проблемы</label><textarea id="reportProblems" rows="3" maxlength="4000"></textarea></div>
+              <div class="field"><label for="reportImprovements">Улучшения</label><textarea id="reportImprovements" rows="3" maxlength="4000"></textarea></div>
+              <div class="field"><label for="reportComment">Комментарий</label><textarea id="reportComment" rows="2" maxlength="4000"></textarea></div>
+              <button class="btn btn-primary btn-block" id="saveReportBtn"><span class="spinner"></span><span>Сохранить отчёт</span></button>
+            </div>
+            <div class="card list-card">
+              <div class="list-head">
+                <h3>Отчёты</h3>
+                <span class="count-pill" id="reportsCount">0</span>
+                <label class="toggle-label" id="reportsDeletedWrap" hidden>
+                  <span class="toggle-label-text">Удалённые</span>
+                  <label class="toggle">
+                    <input type="checkbox" id="reportsShowDeleted">
+                    <span class="slider"></span>
+                  </label>
+                </label>
+              </div>
+              <div class="filter-row">
+                <div class="field"><label for="reportFilterFaction">Фракция</label><select id="reportFilterFaction"></select></div>
+                <div class="field"><label for="reportFilterStart">С</label><input type="date" id="reportFilterStart"></div>
+                <div class="field"><label for="reportFilterEnd">По</label><input type="date" id="reportFilterEnd"></div>
+                <button class="btn btn-ghost" id="reportFilterReset">Сброс</button>
+              </div>
+              <div id="reportsList"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-duties"><div id="dutiesRoot"></div></section>
+      <section class="panel" id="panel-support"><div id="supportRoot"></div></section>
+      <section class="panel" id="panel-pending"><div id="pendingRoot"></div></section>
+      <section class="panel" id="panel-users"><div id="usersRoot"></div></section>
+      <section class="panel" id="panel-factions"><div id="factionsRoot"></div></section>
+      <section class="panel" id="panel-audit"><div id="auditRoot"></div></section>
+      <section class="panel" id="panel-recovery"><div id="recoveryRoot"></div></section>
+
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal modal-wide" id="modalBox" role="dialog" aria-modal="true"></div>
+</div>
+
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="confirmTitle">Подтверждение</h2>
+    <p id="confirmText"></p>
+    <div class="field" id="confirmReasonWrap" hidden>
+      <label for="confirmReason">Причина</label>
+      <input type="text" id="confirmReason" maxlength="300" placeholder="Кратко укажите причину">
+    </div>
+    <div class="field" id="confirmTypedWrap" hidden>
+      <label for="confirmTyped" id="confirmTypedLabel"></label>
+      <input type="text" id="confirmTyped" maxlength="20" autocomplete="off">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="confirmCancel">Отмена</button>
+      <button class="btn btn-danger" id="confirmOk">Удалить</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/permissions.js"></script>
+<script src="js/audit.js"></script>
+<script src="js/presence.js"></script>
+<script src="js/visits.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/factions.js"></script>
+<script src="js/leaders.js"></script>
+<script src="js/archive.js"></script>
+<script src="js/news.js"></script>
+<script src="js/reports.js"></script>
+<script src="js/duties.js"></script>
+<script src="js/support.js"></script>
+<script src="js/users.js"></script>
+<script src="js/auditlog.js"></script>
+<script src="js/recovery.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

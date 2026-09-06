@@ -1,0 +1,145 @@
+const firebaseConfig = {
+  apiKey: "AIzaSyA17bA1P5e8KSB2GK-LwVoiwgG4RvaT3P8",
+  authDomain: "admin-panel-63d23.firebaseapp.com",
+  projectId: "admin-panel-63d23",
+  storageBucket: "admin-panel-63d23.firebasestorage.app",
+  messagingSenderId: "981102642717",
+  appId: "1:981102642717:web:63ad5f83ab7ca93635a8f4",
+  measurementId: "G-J5SP4MJTDE"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
+const FieldValue = firebase.firestore.FieldValue;
+
+const API_URL = 'https://la-puerta-proxy.vercel.app/';
+const API_TIMEOUT_MS = 15000;
+const AUTO_REFRESH_MIN = 10;
+const TERM_DAYS = 30;
+const TERM_DAYS_GOV = 45;
+const GOV_FORUM_KEY = 'GOV';
+const PRESENCE_HEARTBEAT_MS = 30000;
+const PRESENCE_ONLINE_WINDOW_MS = 90000;
+const PRESENCE_IDLE_MS = 10 * 60 * 1000;
+const AVATAR_MAX_BYTES = 3 * 1024 * 1024;
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const PAGE_SIZE = 50;
+const PLATFORM_YEAR = 2026;
+
+const ROLES = {
+  user: 'Пользователь',
+  leader: 'Лидер',
+  curator_assistant: 'Помощник куратора',
+  curator: 'Куратор',
+  server_admin: 'Администратор сервера',
+  site_admin: 'Администратор сайта'
+};
+const STAFF_ROLES = ['curator_assistant', 'curator', 'server_admin'];
+const CURATION_ROLES = ['user', 'leader', 'curator_assistant', 'curator'];
+
+const LEVELS = {
+  1: 'Хелпер 1 уровня',
+  2: 'Хелпер 2 уровня',
+  3: 'Администратор 3 уровня',
+  4: 'Администратор 4 уровня',
+  5: 'Старший администратор',
+  6: 'Главный администратор'
+};
+
+const PERMISSIONS = {
+  viewReports: 'Просмотр отчётов',
+  manageReports: 'Удаление отчётов',
+  editLeaderNickname: 'Изменение никнейма лидера',
+  manageDuties: 'Обязанности',
+  viewAudit: 'Просмотр журнала действий',
+  manageArchive: 'Управление архивом',
+  manageUsers: 'Управление пользователями',
+  manageAdmins: 'Управление администраторами'
+};
+const CURATION_PERMISSIONS = ['viewReports', 'manageReports', 'editLeaderNickname', 'manageDuties'];
+
+const CATEGORY_NAMES = {
+  gov: 'Государственные',
+  judicial: 'Судебная власть',
+  street: 'Уличные группировки',
+  syndicate: 'Преступные синдикаты',
+  other: 'Другое'
+};
+const CATEGORY_ORDER = ['gov', 'judicial', 'street', 'syndicate', 'other'];
+const SIDE_GOV = ['gov', 'judicial'];
+
+const ARCHIVE_RESULTS = [
+  'Успешно завершил срок',
+  'Успешно завершила срок',
+  'Ушёл по собственному желанию',
+  'Был снят',
+  'Завершил 3 срока'
+];
+
+const TICKET_TYPES = { bug: 'Баг', idea: 'Предложение' };
+const TICKET_STATUSES = ['На рассмотрении', 'Одобрено', 'Отклонено'];
+const DUTY_STATUSES = ['Не начато', 'В процессе', 'Выполнено', 'Просрочено', 'Отменено'];
+
+const DUTY_DEFAULTS = {
+  gov: [
+    'Проверить твинки в игре',
+    'Проверить твинки в Discord',
+    'Проверить никнеймы в Discord',
+    'Проверить никнеймы в игре',
+    'Проверить роли в Discord',
+    'Проверить статьи',
+    'Проверить задачи',
+    'Проверить склад',
+    'Проверить пополнение казны',
+    'Провести кадровый аудит'
+  ],
+  ems: [
+    'Проверить твинки в игре',
+    'Проверить твинки в Discord',
+    'Проверить роли в Discord',
+    'Проверить ники в Discord',
+    'Проверить задачи',
+    'Проверить никнеймы в игре',
+    'Провести кадровый аудит',
+    'Проверить слив склада',
+    'Проверить статьи',
+    'Проверить корректность медицинских карт',
+    'Проверить казну'
+  ]
+};
+
+const TAB_TITLES = {
+  dashboard: 'Главная',
+  leaders: 'Список лидеров',
+  archive: 'Архив лидеров',
+  news: 'Новости',
+  reports: 'Отчёты',
+  duties: 'Обязанности',
+  support: 'Поддержка',
+  profile: 'Профиль',
+  users: 'Пользователи',
+  factions: 'Фракции',
+  audit: 'Журнал действий',
+  recovery: 'Восстановление'
+};
+
+const state = {
+  authUser: null,
+  user: null,
+  forum: null,
+  forumTime: null,
+  factions: [],
+  factionsById: {},
+  factionsByForumKey: {},
+  tab: null,
+  search: '',
+  statusFilter: null,
+  archiveSearch: '',
+  archiveShowDeleted: false,
+  reportsShowDeleted: false,
+  usersSearch: '',
+  sessionId: null,
+  visitId: null
+};
