@@ -126,10 +126,13 @@ async function loadDuties() {
       <button class="btn btn-sm" id="dutyTodayBtn">Сегодня</button>
     </div>
     <div class="duty-filter">
-      <select id="dutyFactionSelect" class="select-inline">
-        <option value="">Все фракции</option>
-        ${factionIds.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(factionName(id))}</option>`).join('')}
-      </select>
+      <div class="custom-dropdown" id="dutyFactionDropdown">
+        <div class="dropdown-display" id="dutyFactionDisplay">Все фракции</div>
+        <div class="dropdown-options" id="dutyFactionOptions">
+          <div class="dropdown-option selected" data-value="">Все фракции</div>
+          ${factionIds.map(id => `<div class="dropdown-option" data-value="${escapeHtml(id)}">${escapeHtml(factionName(id))}</div>`).join('')}
+        </div>
+      </div>
     </div>
   ` : '';
 
@@ -175,8 +178,23 @@ async function loadDuties() {
       _selectedWeekStart = _currentWeekStart;
       renderDutyTable();
     });
-    document.getElementById('dutyFactionSelect').addEventListener('change', (e) => {
-      _factionFilter = e.target.value || null;
+    const dutyFactionDropdown = document.getElementById('dutyFactionDropdown');
+    const dutyFactionDisplay = document.getElementById('dutyFactionDisplay');
+    const dutyFactionOptions = document.getElementById('dutyFactionOptions');
+
+    dutyFactionDisplay.addEventListener('click', () => {
+      dutyFactionOptions.classList.toggle('open');
+    });
+
+    dutyFactionOptions.addEventListener('click', (e) => {
+      const option = e.target.closest('.dropdown-option');
+      if (!option) return;
+      const value = option.dataset.value;
+      _factionFilter = value || null;
+      dutyFactionDisplay.textContent = option.textContent;
+      dutyFactionOptions.querySelectorAll('.dropdown-option').forEach(opt => opt.classList.remove('selected'));
+      option.classList.add('selected');
+      dutyFactionOptions.classList.remove('open');
       renderDutyTable();
     });
 
@@ -351,6 +369,16 @@ async function renderDutyTable() {
 function renderDutyTableUI(weekDocs, weekStart, locked) {
   const container = document.getElementById('dutyTableContainer');
   if (!container) return;
+
+  // Update dropdown display
+  const dutyFactionDisplay = document.getElementById('dutyFactionDisplay');
+  const dutyFactionOptions = document.getElementById('dutyFactionOptions');
+  if (dutyFactionDisplay && dutyFactionOptions) {
+    const selectedOption = dutyFactionOptions.querySelector('.dropdown-option.selected');
+    if (selectedOption) {
+      dutyFactionDisplay.textContent = selectedOption.textContent;
+    }
+  }
 
   const visibleFactions = Object.keys(weekDocs);
   if (!visibleFactions.length) {

@@ -901,6 +901,107 @@ body.sidebar-collapsed .topbar {
   flex-shrink: 0;
 }
 
+/* Custom checkbox */
+.custom-checkbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.custom-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.custom-checkbox-box {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--theme-border);
+  border-radius: 4px;
+  background: var(--theme-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--t);
+  flex-shrink: 0;
+}
+
+.custom-checkbox:hover .custom-checkbox-box {
+  border-color: var(--theme-border-strong);
+  background: var(--theme-surface-hover);
+}
+
+.custom-checkbox input:checked + .custom-checkbox-box {
+  background: var(--theme-primary);
+  border-color: var(--theme-primary);
+}
+
+.custom-checkbox input:focus + .custom-checkbox-box {
+  box-shadow: 0 0 0 2px var(--theme-primary-glow);
+}
+
+.custom-checkbox input:disabled + .custom-checkbox-box {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.custom-checkbox-check {
+  width: 12px;
+  height: 12px;
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: all var(--t);
+}
+
+.custom-checkbox input:checked + .custom-checkbox-box .custom-checkbox-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Custom tooltip */
+.custom-tooltip {
+  position: absolute;
+  background: rgba(10, 14, 22, 0.95);
+  border: 1px solid var(--theme-border-strong);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--t), transform var(--t);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+}
+
+.custom-tooltip.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.ring-wrap {
+  position: relative;
+}
+
+.ring-wrap .custom-tooltip {
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+}
+
+.ring-wrap:hover .custom-tooltip.show {
+  transform: translateX(-50%) translateY(0);
+}
+
 .check-group {
   display: flex;
   gap: 16px;
@@ -1869,7 +1970,7 @@ body.sidebar-collapsed .topbar {
 .select-inline {
   background: var(--theme-surface);
   border: 1px solid var(--theme-border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 0 10px;
   height: 37px;
   color: var(--text);
@@ -1880,6 +1981,14 @@ body.sidebar-collapsed .topbar {
 
 .select-inline option {
   background: var(--theme-bg-2);
+}
+
+.duty-filter .custom-dropdown {
+  min-width: 180px;
+}
+
+.duty-filter .dropdown-display {
+  border-radius: var(--radius);
 }
 
 .notice {
@@ -2404,12 +2513,12 @@ body.sidebar-collapsed .topbar {
   border: 2px solid var(--theme-border);
   background: var(--theme-surface);
   border-radius: 10px;
-  padding: 14px 12px;
+  padding: 10px 12px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   transition: all var(--t);
   font-size: 13px;
   font-weight: 600;
@@ -2427,7 +2536,9 @@ body.sidebar-collapsed .topbar {
 }
 
 .category-icon {
-  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Fixed category colors */
@@ -2486,12 +2597,12 @@ body.sidebar-collapsed .topbar {
   border: 2px solid var(--theme-border);
   background: var(--theme-surface);
   border-radius: 10px;
-  padding: 14px 12px;
+  padding: 10px 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   transition: all var(--t);
   font-size: 14px;
   font-weight: 600;
@@ -2509,8 +2620,9 @@ body.sidebar-collapsed .topbar {
 }
 
 .result-icon {
-  font-size: 18px;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Fixed result colors */
@@ -2854,7 +2966,7 @@ body.sidebar-collapsed .topbar {
   font-size: 13px;
   background: var(--theme-surface);
   border: 1px solid var(--theme-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   overflow: visible;
   table-layout: fixed;
 }

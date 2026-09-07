@@ -15,7 +15,7 @@ async function renderDashboard(){
       </div>
       <div class="hero-right">
         ${s ? `
-        <div class="ring-wrap" data-tab="leaders" role="button" tabindex="0" title="Открыть список лидеров">
+        <div class="ring-wrap" data-tab="leaders" role="button" tabindex="0">
           ${ringSvg(s)}
           <div class="ring-legend">
             <div><i style="background:var(--green)"></i>Недавно назначены <b>${s.green}</b></div>
@@ -23,6 +23,7 @@ async function renderDashboard(){
             <div><i style="background:var(--red)"></i>Конец срока и просрочка <b>${s.red}</b></div>
             <div><i style="background:var(--grey)"></i>Нет лидера <b>${s.vacant}</b></div>
           </div>
+          <div class="custom-tooltip">Открыть список лидеров</div>
         </div>` : '<div class="hint">Данные форума ещё загружаются.</div>'}
       </div>
     </section>
@@ -40,6 +41,18 @@ async function renderDashboard(){
         <div class="ac-text">${escapeHtml(a.text)}</div>
       </button>`).join('')}</div>`;
   loadDashBlocks();
+
+  // Initialize custom tooltip for ring-wrap
+  const ringWrap = document.querySelector('.ring-wrap');
+  const tooltip = document.querySelector('.ring-wrap .custom-tooltip');
+  if (ringWrap && tooltip) {
+    ringWrap.addEventListener('mouseenter', () => {
+      tooltip.classList.add('show');
+    });
+    ringWrap.addEventListener('mouseleave', () => {
+      tooltip.classList.remove('show');
+    });
+  }
 }
 
 function forumSummary(){

@@ -61,7 +61,13 @@
             <input type="search" id="archiveSearch" placeholder="Фракция, лидер или результат" autocomplete="off">
           </label>
           <div class="toolbar-right">
-            <label class="check-inline" id="archiveDeletedWrap" hidden><input type="checkbox" id="archiveShowDeleted"> Показать удалённые</label>
+            <label class="custom-checkbox" id="archiveDeletedWrap" hidden>
+              <input type="checkbox" id="archiveShowDeleted">
+              <span class="custom-checkbox-box">
+                <svg class="custom-checkbox-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
+              <span>Показать удалённые</span>
+            </label>
             <button class="btn btn-primary" id="archiveAddBtn" hidden>Добавить запись</button>
           </div>
         </div>

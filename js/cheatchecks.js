@@ -60,19 +60,19 @@ function renderCheatReport() {
             <label>КАТЕГОРИЯ <span class="required">*</span></label>
             <div class="cheat-categories">
               <button class="cheat-category-btn category-bots" data-category="bots">
-                <span class="category-icon">🤖</span>
+                <svg class="category-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
                 <span>Боты</span>
               </button>
               <button class="cheat-category-btn category-soft" data-category="soft">
-                <span class="category-icon">💻</span>
+                <svg class="category-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                 <span>Софт</span>
               </button>
               <button class="cheat-category-btn category-hunt" data-category="hunt">
-                <span class="category-icon">🎯</span>
+                <svg class="category-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
                 <span>Охота</span>
               </button>
               <button class="cheat-category-btn category-other" data-category="other">
-                <span class="category-icon">📋</span>
+                <svg class="category-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                 <span>Другое</span>
               </button>
             </div>
@@ -82,11 +82,11 @@ function renderCheatReport() {
             <label>РЕЗУЛЬТАТ <span class="required">*</span></label>
             <div class="cheat-results">
               <button class="cheat-result-btn result-passed" data-result="passed">
-                <span class="result-icon">✓</span>
+                <svg class="result-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                 <span>Прошёл</span>
               </button>
               <button class="cheat-result-btn result-blocked" data-result="blocked">
-                <span class="result-icon">✕</span>
+                <svg class="result-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 <span>Заблокирован</span>
               </button>
             </div>
@@ -311,7 +311,7 @@ function renderCheatHistoryContent() {
   }
 
   content.innerHTML = `
-    <div class="table-card">
+    <div class="card table-card">
       <table class="data-table">
         <thead>
           <tr>
