@@ -152,17 +152,27 @@ function renderStats(scoped){
     <button class="stat-chip${(state.statusFilter === c.key || (!state.statusFilter && c.key === null)) ? ' active' : ''}" data-status="${c.key ?? ''}" data-tone="${c.tone}" title="Показать только этот статус"><b>${c.value}</b>${c.label}</button>`).join('');
 }
 
-function isMineFaction(faction){
-  if (!faction) return false;
-  if (isLeader()) return faction.id === myFaction();
+function isMineFaction(faction, category){
+  if (!faction && category !== 'judicial') return false;
+
+  if (isLeader()) {
+    return faction ? faction.id === myFaction() : false;
+  }
+
   if (isStaff()) {
-    if (curatedFactions().includes(faction.id)) return true;
+    if (faction && curatedFactions().includes(faction.id)) return true;
+
     const govFaction = state.factionsByForumKey[GOV_FORUM_KEY];
     if (govFaction && curatedFactions().includes(govFaction.id)) {
-      if (faction.id === govFaction.id) return true;
-      if (faction.category === 'judicial') return true;
+      if (faction && faction.id === govFaction.id) return true;
+      if (category === 'judicial') return true;
+    }
+
+    if (isChiefOverseer() && state.user.direction === 'state' && category === 'judicial') {
+      return true;
     }
   }
+
   return false;
 }
 
@@ -172,7 +182,7 @@ function renderLeaderCard({ key, entry, faction, info, category }){
   card.dataset.status = info.status;
   const isVacant = info.status === 'vacant';
   const name = faction ? faction.name : key;
-  const mine = isMineFaction(faction);
+  const mine = isMineFaction(faction, category);
   if (mine) card.classList.add('mine');
   const leaderUser = faction ? _leaderUsers[faction.id] : null;
   const isJudicial = category === 'judicial';

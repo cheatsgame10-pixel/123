@@ -2,6 +2,14 @@ let _users = [];
 let _pendingUsers = [];
 let _presence = {};
 let _showDeleted = false;
+let _modalSelections = {
+  curatedFactions: new Set(),
+  permissions: new Set(),
+  systemRole: null,
+  serverLevel: null,
+  direction: null,
+  faction: null
+};
 
 async function loadPendingUsers(){
   const root = document.getElementById('pendingRoot');
@@ -41,27 +49,32 @@ function renderPendingUsers(){
           </div>
           <div class="pending-actions">
             <select class="select-inline pending-role" data-uid="${escapeHtml(p.uid)}">
-              <option value="user">Пользователь</option>
               <option value="leader">Лидер</option>
               <option value="curator_assistant">Помощник куратора</option>
               <option value="curator">Куратор</option>
+              <option value="chief_overseer">Главный следящий</option>
               <option value="server_admin">Администратор сервера</option>
               <option value="site_admin">Администратор сайта</option>
             </select>
             <div class="pending-level-wrap" data-uid="${escapeHtml(p.uid)}">
               <select class="select-inline pending-level" data-uid="${escapeHtml(p.uid)}">
-                <option value="1">Уровень 1</option>
-                <option value="2">Уровень 2</option>
-                <option value="3">Уровень 3</option>
-                <option value="4">Уровень 4</option>
-                <option value="5">Уровень 5</option>
-                <option value="6">Уровень 6</option>
+                <option value="2">Хелпер 2 уровня</option>
+                <option value="3">Администратор 3 уровня</option>
+                <option value="4">Администратор 4 уровня</option>
+                <option value="5">Старший администратор</option>
+                <option value="6">Главный администратор</option>
               </select>
             </div>
             <div class="pending-leader-faction-wrap" data-uid="${escapeHtml(p.uid)}" style="display:none;">
               <select class="select-inline pending-leader-faction" data-uid="${escapeHtml(p.uid)}">
                 <option value="">Выберите фракцию</option>
                 ${factionSelectOptions}
+              </select>
+            </div>
+            <div class="pending-direction-wrap" data-uid="${escapeHtml(p.uid)}" style="display:none;">
+              <select class="select-inline pending-direction" data-uid="${escapeHtml(p.uid)}">
+                <option value="">Выберите направление</option>
+                ${OVERSEER_DIRECTIONS.map(d => `<option value="${d}">${OVERSEER_DIRECTION_LABELS[d]}</option>`).join('')}
               </select>
             </div>
             <div class="pending-factions-wrap" data-uid="${escapeHtml(p.uid)}" style="display:none;">
@@ -93,6 +106,7 @@ function renderPendingUsers(){
       const role = this.value;
       const levelWrap = document.querySelector(`.pending-level-wrap[data-uid="${uid}"]`);
       const leaderFactionWrap = document.querySelector(`.pending-leader-faction-wrap[data-uid="${uid}"]`);
+      const directionWrap = document.querySelector(`.pending-direction-wrap[data-uid="${uid}"]`);
       const factionsWrap = document.querySelector(`.pending-factions-wrap[data-uid="${uid}"]`);
       if (levelWrap) {
         const isStaffRole = STAFF_ROLES.includes(role) || role === 'site_admin';
@@ -101,8 +115,11 @@ function renderPendingUsers(){
       if (leaderFactionWrap) {
         leaderFactionWrap.style.display = role === 'leader' ? 'inline-block' : 'none';
       }
+      if (directionWrap) {
+        directionWrap.style.display = role === 'chief_overseer' ? 'inline-block' : 'none';
+      }
       if (factionsWrap) {
-        const isCuratorRole = role === 'curator_assistant' || role === 'curator';
+        const isCuratorRole = role === 'curator_assistant' || role === 'curator' || role === 'chief_overseer';
         factionsWrap.style.display = isCuratorRole ? 'block' : 'none';
       }
     });
@@ -151,29 +168,37 @@ async function approveUser(uid){
   const roleSelect = document.querySelector(`.pending-role[data-uid="${uid}"]`);
   const levelSelect = document.querySelector(`.pending-level[data-uid="${uid}"]`);
   const leaderFactionSelect = document.querySelector(`.pending-leader-faction[data-uid="${uid}"]`);
-  const factionsSelect = document.querySelector(`.pending-factions[data-uid="${uid}"]`);
-  const systemRole = roleSelect ? roleSelect.value : 'user';
-  const serverLevel = (STAFF_ROLES.includes(systemRole) || systemRole === 'site_admin') ? parseInt(levelSelect.value) : 1;
+  const directionSelect = document.querySelector(`.pending-direction[data-uid="${uid}"]`);
+  const customDropdown = document.querySelector(`.custom-dropdown[data-uid="${uid}"]`);
+  
+  const systemRole = roleSelect ? roleSelect.value : 'leader';
+  const serverLevel = (STAFF_ROLES.includes(systemRole) || systemRole === 'site_admin') ? parseInt(levelSelect.value) : 2;
 
   let permissions = [];
   if (systemRole === 'curator_assistant' || systemRole === 'curator') {
-    permissions = ['viewReports'];
+    permissions = ['viewReports', 'manageDuties'];
+  }
+  if (systemRole === 'chief_overseer') {
+    permissions = ['viewReports', 'manageReports', 'manageDuties', 'viewAudit'];
   }
 
   let curatedFactions = [];
-  if (factionsSelect) {
-    curatedFactions = Array.from(factionsSelect.selectedOptions).map(opt => opt.value).filter(v => v);
-  }
-
-  const customDropdown = document.querySelector(`.custom-dropdown[data-uid="${uid}"]`);
   if (customDropdown) {
     const selectedOptions = customDropdown.querySelectorAll('.dropdown-option.selected');
     curatedFactions = Array.from(selectedOptions).map(opt => opt.dataset.value);
   }
 
   let faction = null;
+  let direction = null;
   if (systemRole === 'leader' && leaderFactionSelect) {
     faction = leaderFactionSelect.value || null;
+  }
+  if (systemRole === 'chief_overseer' && directionSelect) {
+    direction = directionSelect.value || null;
+    if (direction) {
+      const cats = DIRECTION_CATEGORIES[direction] || [];
+      curatedFactions = state.factions.filter(f => cats.includes(f.category) && f.active !== false).map(f => f.id);
+    }
   }
 
   try {
@@ -187,6 +212,7 @@ async function approveUser(uid){
       serverLevel,
       systemRole,
       faction: faction,
+      direction: direction,
       curatedFactions: curatedFactions,
       permissions: permissions,
       reportEditingEnabled: false,
@@ -229,7 +255,7 @@ async function loadUsers(){
     if (isSiteAdmin()){
       snap = await db.collection('users').get();
     } else if (isStaff() && myLevel() >= 4){
-      snap = await db.collection('users').where('systemRole', 'in', ['user', 'leader', 'curator_assistant', 'curator', 'server_admin']).get();
+      snap = await db.collection('users').where('systemRole', 'in', ['leader', 'curator_assistant', 'curator', 'chief_overseer', 'server_admin']).get();
     } else if (curatedFactions().length){
       snap = await db.collection('users').where('faction', 'in', curatedFactions().slice(0, 30)).get();
     } else {
@@ -248,7 +274,7 @@ async function loadUsers(){
 }
 
 function roleWeight(r){
-  return ['user', 'leader', 'curator_assistant', 'curator', 'server_admin', 'site_admin'].indexOf(r);
+  return ['leader', 'curator_assistant', 'curator', 'chief_overseer', 'server_admin', 'site_admin'].indexOf(r);
 }
 
 function renderUsers(){
@@ -285,6 +311,7 @@ function renderUsers(){
     (u.displayName || '').toLowerCase().includes(q) ||
     (u.email || '').toLowerCase().includes(q) ||
     (ROLES[u.systemRole] || '').toLowerCase().includes(q) ||
+    (u.direction ? (OVERSEER_DIRECTION_LABELS[u.direction] || '').toLowerCase().includes(q) : false) ||
     factionName(u.faction).toLowerCase().includes(q)) : _users;
 
   if (!_showDeleted) {
@@ -304,8 +331,8 @@ function renderUsers(){
         <tbody>${rows.map(u => `
           <tr class="${u.active === false || u.deleted === true ? 'row-muted' : ''}">
             <td><div class="user-cell">${avatarHtml(u.avatarUrl, u.displayName || u.email, 'avatar-sm')}<div><div class="uc-name">${escapeHtml(u.displayName || '—')}</div><div class="uc-email mono">${escapeHtml(u.email)}</div></div></td>
-            <td>${roleBadge(u)}</td>
-            <td>${(u.systemRole === 'leader' || u.systemRole === 'user') ? '<span class="hint">—</span>' : levelBadge(u.serverLevel)}</td>
+            <td>${roleBadge(u)}${u.systemRole === 'chief_overseer' && u.direction ? `<div class="hint">${escapeHtml(OVERSEER_DIRECTION_LABELS[u.direction] || u.direction)}</div>` : ''}</td>
+            <td>${u.systemRole === 'leader' ? '<span class="hint">—</span>' : levelBadge(u.serverLevel)}</td>
             <td>${userFactionsText(u)}</td>
             <td>${u.deleted === true ? '<span class="badge badge-grey">Удалён</span>' : (u.active === false ? '<span class="badge badge-grey">Отключён</span>' : presenceBadge(_presence[u.uid]))}</td>
             <td class="mono">${fmtDate(u.createdAt)}</td>
@@ -318,7 +345,18 @@ function renderUsers(){
 
 function userFactionsText(u){
   if (u.systemRole === 'leader') return escapeHtml(factionName(u.faction));
-  if (Array.isArray(u.curatedFactions) && u.curatedFactions.length) return escapeHtml(u.curatedFactions.map(factionName).join(', '));
+  if (u.systemRole === 'chief_overseer' && u.direction) {
+    const cats = DIRECTION_CATEGORIES[u.direction] || [];
+    const names = state.factions.filter(f => cats.includes(f.category) && f.active !== false).map(f => f.name);
+    return escapeHtml(names.join(', ') || '—');
+  }
+  if (Array.isArray(u.curatedFactions) && u.curatedFactions.length) {
+    const names = u.curatedFactions.map(id => {
+      const f = state.factionsById[id];
+      return f && f.active !== false ? f.name : null;
+    }).filter(Boolean);
+    return names.length ? escapeHtml(names.join(', ')) : '<span class="hint">—</span>';
+  }
   return '<span class="hint">—</span>';
 }
 
@@ -345,15 +383,23 @@ function openUserModal(uid){
   if (!u) return;
   const self = uid === state.user.uid;
   const admin = isSiteAdmin();
-  const curationOk = canManageCurationOf(u);
-  const levelOk = canChangeLevelOf(u);
+  const curationOk = canManageCurationOf(u) || (self && admin);
+  const levelOk = canChangeLevelOf(u) || (self && admin);
   if (!admin && !curationOk && !levelOk) return;
+
+  _modalSelections.curatedFactions = new Set(Array.isArray(u.curatedFactions) ? u.curatedFactions : []);
+  _modalSelections.permissions = new Set(Array.isArray(u.permissions) ? u.permissions : []);
+  _modalSelections.systemRole = u.systemRole;
+  _modalSelections.serverLevel = u.serverLevel;
+  _modalSelections.direction = u.direction || '';
+  _modalSelections.faction = u.faction || '';
+
   const curated = Array.isArray(u.curatedFactions) ? u.curatedFactions : [];
   const perms = Array.isArray(u.permissions) ? u.permissions : [];
   const roleOptions = admin ? Object.keys(ROLES) : CURATION_ROLES;
   const permOptions = admin ? Object.keys(PERMISSIONS) : CURATION_PERMISSIONS;
-  const factionsForCuration = assignableFactionIds();
-  const levelOptions = admin ? [1, 2, 3, 4, 5, 6] : (levelOk ? [1, 2, 3, 4, 5, 6] : [Number(u.serverLevel) || 1]);
+  const factionsForCuration = admin ? state.factions.filter(f => f.active !== false).map(f => f.id) : assignableFactionIds();
+  const levelOptions = admin ? [2,3,4,5,6] : (levelOk ? [2,3,4,5,6] : [Number(u.serverLevel) || 2]);
 
   const availableFactions = state.factions.filter(f => f.active !== false && factionsForCuration.includes(f.id));
   const grouped = {};
@@ -368,7 +414,8 @@ function openUserModal(uid){
   catOrder.forEach(cat => {
     if (grouped[cat] && grouped[cat].length) {
       grouped[cat].forEach(f => {
-        curatedOptions += `<div class="dropdown-option" data-value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</div>`;
+        const isSelected = curated.includes(f.id);
+        curatedOptions += `<div class="dropdown-option${isSelected ? ' selected' : ''}" data-value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</div>`;
       });
     }
   });
@@ -379,7 +426,8 @@ function openUserModal(uid){
   const permList = admin ? Object.keys(PERMISSIONS) : CURATION_PERMISSIONS;
   let permOptionsHtml = '';
   permList.forEach(p => {
-    permOptionsHtml += `<div class="dropdown-option" data-value="${p}"${perms.includes(p) ? ' selected' : ''}>${PERMISSIONS[p]}</div>`;
+    const isSelected = perms.includes(p);
+    permOptionsHtml += `<div class="dropdown-option${isSelected ? ' selected' : ''}" data-value="${p}">${PERMISSIONS[p] || p}</div>`;
   });
   if (!permOptionsHtml) {
     permOptionsHtml = '<div class="dropdown-option" data-value="">Нет доступных прав</div>';
@@ -388,19 +436,47 @@ function openUserModal(uid){
   const activeChecked = u.active !== false ? 'checked' : '';
   const deletedChecked = u.deleted === true ? 'checked' : '';
   const reportEditChecked = u.reportEditingEnabled ? 'checked' : '';
-  const disabledAttr = (self || !admin) ? 'disabled' : '';
+  const disabledAttr = (self && !admin) ? 'disabled' : '';
+
+  // Генерация кастомных одиночных дропдаунов
+  const singleDropdownHtml = (id, label, optionsArray, selectedValue, placeholder) => {
+    const optionsHtml = optionsArray.map(opt => {
+      const val = typeof opt === 'object' ? opt.value : opt;
+      const text = typeof opt === 'object' ? opt.label : opt;
+      const isSelected = selectedValue === val;
+      return `<div class="dropdown-option${isSelected ? ' selected' : ''}" data-value="${escapeHtml(val)}">${escapeHtml(text)}</div>`;
+    }).join('');
+    const displayText = selectedValue
+      ? optionsArray.find(opt => (typeof opt === 'object' ? opt.value : opt) === selectedValue)
+        ? (typeof optionsArray.find(opt => (typeof opt === 'object' ? opt.value : opt) === selectedValue) === 'object'
+          ? optionsArray.find(opt => (typeof opt === 'object' ? opt.value : opt) === selectedValue).label
+          : selectedValue)
+        : placeholder
+      : placeholder;
+    return `
+      <div class="field" id="${id}Wrap">
+        <label>${label}</label>
+        <div class="custom-dropdown modal-dropdown" id="${id}Dropdown">
+          <div class="dropdown-display">${escapeHtml(displayText)}</div>
+          <div class="dropdown-options">
+            ${optionsHtml}
+          </div>
+        </div>
+      </div>`;
+  };
 
   openModal(`
     <h2>${escapeHtml(u.displayName || u.email)}</h2>
-    <p class="sub mono">${escapeHtml(u.email)}${self ? ' · это ваш аккаунт: роль и права себе изменить нельзя' : ''}</p>
+    <p class="sub mono">${escapeHtml(u.email)}${self ? ' · это ваш аккаунт' : ''}</p>
     <div class="grid-2">
       <div class="field"><label for="uName">Никнейм</label><input type="text" id="uName" maxlength="80" value="${escapeHtml(u.displayName || '')}" ${admin ? '' : 'disabled'}></div>
-      <div class="field" id="uLevelWrap"><label for="uLevel">Серверный уровень</label><select id="uLevel" ${(self || !(admin || levelOk)) ? 'disabled' : ''}>${levelOptions.map(n => `<option value="${n}"${Number(u.serverLevel) === n ? ' selected' : ''}>${LEVELS[n]}</option>`).join('')}</select></div>
+      ${singleDropdownHtml('uLevel', 'Серверный уровень', levelOptions.map(n => ({ value: n, label: LEVELS[n] })), _modalSelections.serverLevel, 'Выберите уровень')}
     </div>
     <div class="grid-2">
-      <div class="field"><label for="uRole">Системная роль</label><select id="uRole" ${(self || !(admin || curationOk)) ? 'disabled' : ''}>${roleOptions.map(r => `<option value="${r}"${u.systemRole === r ? ' selected' : ''}>${ROLES[r]}</option>`).join('')}</select></div>
-      <div class="field" id="uFactionWrap"><label for="uFaction">Фракция лидера</label><select id="uFaction" ${(self || !admin) ? 'disabled' : ''}>${factionGroupedOptionsHtml(u.faction || '', 'Не назначена')}</select></div>
+      ${singleDropdownHtml('uRole', 'Системная роль', roleOptions.map(r => ({ value: r, label: ROLES[r] })), _modalSelections.systemRole, 'Выберите роль')}
+      ${singleDropdownHtml('uFaction', 'Фракция лидера', state.factions.filter(f => f.active !== false).map(f => ({ value: f.id, label: f.name })), _modalSelections.faction, 'Не назначена')}
     </div>
+    ${singleDropdownHtml('uDirection', 'Направление (Главный следящий)', OVERSEER_DIRECTIONS.map(d => ({ value: d, label: OVERSEER_DIRECTION_LABELS[d] })), _modalSelections.direction, 'Не выбрано')}
     <div class="field" id="uCuratedWrap">
       <label>Курируемые фракции</label>
       <div class="custom-dropdown modal-dropdown">
@@ -424,7 +500,7 @@ function openUserModal(uid){
         <label class="toggle-label">
           <span class="toggle-label-text">Лидер может редактировать комментарий своих отчётов</span>
           <label class="toggle">
-            <input type="checkbox" id="uReportEdit" ${reportEditChecked} ${self ? 'disabled' : ''}>
+            <input type="checkbox" id="uReportEdit" ${reportEditChecked} ${self ? '' : ''}>
             <span class="slider"></span>
           </label>
         </label>
@@ -453,31 +529,45 @@ function openUserModal(uid){
       <button class="btn btn-primary" id="uSaveBtn" data-action="user-save" data-id="${escapeHtml(uid)}"><span class="spinner"></span><span>Сохранить</span></button>
     </div>`);
 
-  document.querySelectorAll('.modal-dropdown').forEach(dropdown => {
+  // Инициализация множественных дропдаунов
+  document.querySelectorAll('#uCuratedWrap .dropdown-option').forEach(opt => {
+    if (_modalSelections.curatedFactions.has(opt.dataset.value)) {
+      opt.classList.add('selected');
+    } else {
+      opt.classList.remove('selected');
+    }
+  });
+  document.querySelectorAll('#uPermsWrap .dropdown-option').forEach(opt => {
+    if (_modalSelections.permissions.has(opt.dataset.value)) {
+      opt.classList.add('selected');
+    } else {
+      opt.classList.remove('selected');
+    }
+  });
+
+  // Обработчики множественных дропдаунов
+  document.querySelectorAll('#uCuratedWrap .custom-dropdown, #uPermsWrap .custom-dropdown').forEach(dropdown => {
     const display = dropdown.querySelector('.dropdown-display');
     const options = dropdown.querySelector('.dropdown-options');
-    let selected = new Set();
+    let selectedSet = dropdown.closest('#uCuratedWrap') ? _modalSelections.curatedFactions : _modalSelections.permissions;
 
     options.querySelectorAll('.dropdown-option').forEach(opt => {
-      if (opt.classList.contains('selected')) {
-        selected.add(opt.dataset.value);
-      }
       opt.addEventListener('click', (e) => {
+        e.stopPropagation();
         const val = opt.dataset.value;
         if (!val) return;
-        if (selected.has(val)) {
-          selected.delete(val);
+        if (selectedSet.has(val)) {
+          selectedSet.delete(val);
           opt.classList.remove('selected');
         } else {
-          selected.add(val);
+          selectedSet.add(val);
           opt.classList.add('selected');
         }
-        const names = Array.from(selected).map(v => {
+        const names = Array.from(selectedSet).map(v => {
           const optEl = options.querySelector(`[data-value="${v}"]`);
           return optEl ? optEl.textContent : v;
         });
         display.textContent = names.length ? names.join(', ') : (dropdown.closest('#uPermsWrap') ? 'Выберите права' : 'Выберите фракции');
-        e.stopPropagation();
       });
     });
 
@@ -491,21 +581,59 @@ function openUserModal(uid){
     });
   });
 
-  const roleSel = document.getElementById('uRole');
-  const levelWrap = document.getElementById('uLevelWrap');
-  const sync = () => {
-    const r = roleSel.value;
+  // Обработчики одиночных кастомных дропдаунов
+  document.querySelectorAll('.modal-dropdown[id$="Dropdown"]').forEach(dropdown => {
+    const idBase = dropdown.id.replace('Dropdown', '');
+    const display = dropdown.querySelector('.dropdown-display');
+    const options = dropdown.querySelector('.dropdown-options');
+    const keyMap = {
+      'ulevel': 'serverLevel',
+      'urole': 'systemRole',
+      'ufaction': 'faction',
+      'udirection': 'direction'
+    };
+    const selectionKey = keyMap[idBase.toLowerCase()];
+
+    if (!selectionKey) return;
+
+    options.querySelectorAll('.dropdown-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const val = opt.dataset.value;
+        options.querySelectorAll('.dropdown-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        _modalSelections[selectionKey] = val;
+        display.textContent = opt.textContent;
+        options.classList.remove('open');
+        if (selectionKey === 'systemRole') {
+          syncModalFields();
+        }
+      });
+    });
+
+    display.addEventListener('click', (e) => {
+      e.stopPropagation();
+      options.classList.toggle('open');
+    });
+
+    document.addEventListener('click', () => {
+      options.classList.remove('open');
+    });
+  });
+
+  const syncModalFields = () => {
+    const r = _modalSelections.systemRole;
     const isStaffRole = STAFF_ROLES.includes(r) || r === 'site_admin';
     const isLeaderRole = r === 'leader';
+    const isOverseerRole = r === 'chief_overseer';
     document.getElementById('uFactionWrap').hidden = !isLeaderRole;
-    const editWrap = document.getElementById('uEditWrap');
-    if (editWrap) editWrap.hidden = !isLeaderRole;
-    document.getElementById('uCuratedWrap').hidden = !STAFF_ROLES.includes(r);
-    document.getElementById('uPermsWrap').hidden = !STAFF_ROLES.includes(r);
-    levelWrap.hidden = !isStaffRole;
+    document.getElementById('uDirectionWrap').hidden = !isOverseerRole;
+    document.getElementById('uCuratedWrap').hidden = !(STAFF_ROLES.includes(r) || isOverseerRole);
+    document.getElementById('uPermsWrap').hidden = !(STAFF_ROLES.includes(r) || isOverseerRole);
+    document.getElementById('uLevelWrap').hidden = !isStaffRole;
   };
-  roleSel.addEventListener('change', sync);
-  sync();
+
+  syncModalFields();
 }
 
 async function saveUser(uid){
@@ -520,93 +648,56 @@ async function saveUser(uid){
     if (!displayName){ toast('Введите никнейм', 'error'); return; }
     patch.displayName = displayName;
   }
-  if (!self){
-    const systemRole = document.getElementById('uRole').value;
-    const isLeaderRole = systemRole === 'leader';
-    const isStaffRole = STAFF_ROLES.includes(systemRole) || systemRole === 'site_admin';
-    if (admin || canChangeLevelOf(u)) {
-      if (isStaffRole) {
-        patch.serverLevel = Number(document.getElementById('uLevel').value);
-      } else {
-        patch.serverLevel = 1;
-      }
-    }
-    if (admin || canManageCurationOf(u)){
-      patch.systemRole = systemRole;
-      if (isStaffRole) {
-        const factionsDropdown = document.querySelector('#uCuratedWrap .modal-dropdown');
-        const selectedFactionOptions = factionsDropdown ? factionsDropdown.querySelectorAll('.dropdown-option.selected') : [];
-        const curatedFactions = Array.from(selectedFactionOptions).map(opt => opt.dataset.value).filter(v => v);
 
-        const permsDropdown = document.querySelector('#uPermsWrap .modal-dropdown');
-        const selectedPermOptions = permsDropdown ? permsDropdown.querySelectorAll('.dropdown-option.selected') : [];
-        let perms = Array.from(selectedPermOptions).map(opt => opt.dataset.value).filter(v => v);
+  const systemRole = _modalSelections.systemRole;
+  const isLeaderRole = systemRole === 'leader';
+  const isStaffRole = STAFF_ROLES.includes(systemRole) || systemRole === 'site_admin';
+  const isOverseerRole = systemRole === 'chief_overseer';
 
-        if ((systemRole === 'curator_assistant' || systemRole === 'curator') && !perms.includes('viewReports')) {
-          perms.push('viewReports');
-        }
-        patch.curatedFactions = curatedFactions;
-        patch.permissions = perms;
-      } else {
-        patch.curatedFactions = [];
-        patch.permissions = [];
-      }
-    }
-    if (admin){
-      if (isLeaderRole) {
-        const faction = document.getElementById('uFaction').value;
-        if (!faction){ toast('Выберите фракцию для лидера', 'error'); return; }
-        patch.faction = faction;
-      } else {
-        patch.faction = null;
-      }
-      patch.reportEditingEnabled = isLeaderRole ? document.getElementById('uReportEdit').checked : false;
-      patch.active = document.getElementById('uActive').checked;
-      patch.deleted = document.getElementById('uDeleted').checked;
-    } else if (isLeaderRole && u.systemRole !== 'leader'){
-      toast('Назначать лидеров может только администратор сайта', 'error');
-      return;
-    }
+  if (isStaffRole) {
+    patch.serverLevel = _modalSelections.serverLevel;
   } else {
-    if (admin) {
-      const systemRole = document.getElementById('uRole').value;
-      const isStaffRole = STAFF_ROLES.includes(systemRole) || systemRole === 'site_admin';
-      if (isStaffRole) {
-        const factionsDropdown = document.querySelector('#uCuratedWrap .modal-dropdown');
-        const selectedFactionOptions = factionsDropdown ? factionsDropdown.querySelectorAll('.dropdown-option.selected') : [];
-        const curatedFactions = Array.from(selectedFactionOptions).map(opt => opt.dataset.value).filter(v => v);
-
-        const permsDropdown = document.querySelector('#uPermsWrap .modal-dropdown');
-        const selectedPermOptions = permsDropdown ? permsDropdown.querySelectorAll('.dropdown-option.selected') : [];
-        let perms = Array.from(selectedPermOptions).map(opt => opt.dataset.value).filter(v => v);
-
-        if ((systemRole === 'curator_assistant' || systemRole === 'curator') && !perms.includes('viewReports')) {
-          perms.push('viewReports');
-        }
-        patch.curatedFactions = curatedFactions;
-        patch.permissions = perms;
-        patch.systemRole = systemRole;
-        if (admin || canChangeLevelOf(u)) {
-          if (isStaffRole) {
-            patch.serverLevel = Number(document.getElementById('uLevel').value);
-          } else {
-            patch.serverLevel = 1;
-          }
-        }
-        const isLeaderRole = systemRole === 'leader';
-        if (isLeaderRole) {
-          const faction = document.getElementById('uFaction').value;
-          if (!faction){ toast('Выберите фракцию для лидера', 'error'); return; }
-          patch.faction = faction;
-        } else {
-          patch.faction = null;
-        }
-        patch.reportEditingEnabled = isLeaderRole ? document.getElementById('uReportEdit').checked : false;
-        patch.active = document.getElementById('uActive').checked;
-        patch.deleted = document.getElementById('uDeleted').checked;
-      }
-    }
+    patch.serverLevel = 2;
   }
+
+  patch.systemRole = systemRole;
+
+  if (isLeaderRole) {
+    const faction = _modalSelections.faction;
+    if (!faction){ toast('Выберите фракцию для лидера', 'error'); return; }
+    patch.faction = faction;
+    patch.direction = null;
+  } else {
+    patch.faction = null;
+  }
+
+  if (isOverseerRole) {
+    const direction = _modalSelections.direction;
+    if (!direction){ toast('Выберите направление для главного следящего', 'error'); return; }
+    patch.direction = direction;
+    const cats = DIRECTION_CATEGORIES[direction] || [];
+    patch.curatedFactions = state.factions.filter(f => cats.includes(f.category) && f.active !== false).map(f => f.id);
+    patch.permissions = ['viewReports', 'manageReports', 'manageDuties', 'viewAudit'];
+  } else {
+    patch.direction = null;
+    patch.curatedFactions = Array.from(_modalSelections.curatedFactions);
+    let perms = Array.from(_modalSelections.permissions);
+
+    if ((systemRole === 'curator_assistant' || systemRole === 'curator') && !perms.includes('viewReports')) {
+      perms.push('viewReports');
+    }
+    if ((systemRole === 'curator_assistant' || systemRole === 'curator') && !perms.includes('manageDuties')) {
+      perms.push('manageDuties');
+    }
+    patch.permissions = perms;
+  }
+
+  if (admin) {
+    patch.reportEditingEnabled = isLeaderRole ? document.getElementById('uReportEdit').checked : false;
+    patch.active = document.getElementById('uActive').checked;
+    patch.deleted = document.getElementById('uDeleted').checked;
+  }
+
   setLoading(btn, true);
   try {
     const batch = db.batch();
@@ -632,6 +723,7 @@ function pickUserFields(u){
     systemRole: u.systemRole,
     serverLevel: u.serverLevel,
     faction: u.faction || null,
+    direction: u.direction || null,
     curatedFactions: Array.isArray(u.curatedFactions) ? u.curatedFactions : [],
     permissions: Array.isArray(u.permissions) ? u.permissions : [],
     reportEditingEnabled: !!u.reportEditingEnabled,
@@ -646,6 +738,7 @@ function describeUserChange(o, n){
   if (o.systemRole !== n.systemRole) parts.push(`изменил роль на «${ROLES[n.systemRole]}»`);
   if (o.serverLevel !== n.serverLevel) parts.push(`изменил уровень на «${LEVELS[n.serverLevel] || n.serverLevel}»`);
   if (o.faction !== n.faction) parts.push('изменил фракцию лидера');
+  if (o.direction !== n.direction) parts.push('изменил направление главного следящего');
   if (JSON.stringify(o.curatedFactions) !== JSON.stringify(n.curatedFactions)) parts.push('изменил курируемые фракции');
   if (JSON.stringify(o.permissions) !== JSON.stringify(n.permissions)) parts.push('изменил права');
   if (o.reportEditingEnabled !== n.reportEditingEnabled) parts.push(n.reportEditingEnabled ? 'разрешил редактирование отчётов' : 'запретил редактирование отчётов');
@@ -664,9 +757,9 @@ async function revokeAdmin(uid){
     const batch = db.batch();
     addVersion(batch, 'user', uid, stripSystem(u));
     batch.update(db.collection('users').doc(uid), {
-      systemRole: 'user', curatedFactions: [], permissions: [], faction: null, reportEditingEnabled: false, serverLevel: 1, updatedAt: FieldValue.serverTimestamp()
+      systemRole: 'leader', curatedFactions: [], permissions: [], faction: null, direction: null, reportEditingEnabled: false, serverLevel: 2, updatedAt: FieldValue.serverTimestamp()
     });
-    addAudit(batch, { action: 'Снял пользователя с административной должности', objectType: 'user', objectId: uid, oldValue: pickUserFields(u), newValue: { systemRole: 'user', curatedFactions: [], permissions: [] }, additionalInfo: `${u.email}. Причина: ${res.reason}` });
+    addAudit(batch, { action: 'Снял пользователя с административной должности', objectType: 'user', objectId: uid, oldValue: pickUserFields(u), newValue: { systemRole: 'leader', curatedFactions: [], permissions: [] }, additionalInfo: `${u.email}. Причина: ${res.reason}` });
     await batch.commit();
     closeModal();
     toast('Пользователь снят с администрации');

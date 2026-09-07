@@ -86,7 +86,7 @@ function toggleSidebar(force){
 function updateDateTime(){
   const el = document.getElementById('topbarDateTime');
   if (!el) return;
-  const now = new Date();
+  const now = getMoscowNow();
   const dateStr = now.toLocaleDateString('ru-RU', {
     weekday: 'short',
     day: 'numeric',

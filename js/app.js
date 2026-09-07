@@ -101,6 +101,8 @@ function handleAction(el){
     'duty-types': () => openDutyTypesModal(),
     'duty-type-add': () => addDutyType(),
     'duty-type-toggle': () => toggleDutyType(id),
+    'duty-edit-template': () => openDutyTemplateModal(el.dataset.faction),
+    'duty-template-save': () => saveDutyTemplate(el.dataset.id),
     'audit-more': () => loadAudit(true),
     'versions': () => openVersionsModal(type, id),
     'version-restore': () => restoreVersion(type, id, el.dataset.version),
@@ -175,6 +177,7 @@ async function boot(){
   renderLeadersSkeleton();
   loadCachedForum();
   await loadFactions();
+  subscribeToFactions();
   await new Promise(resolve => {
     const unsub = auth.onAuthStateChanged(() => { unsub(); resolve(); });
   });

@@ -7,7 +7,7 @@ function role(){
 }
 
 function myLevel(){
-  return state.user ? Number(state.user.serverLevel) || 1 : 0;
+  return state.user ? Number(state.user.serverLevel) || 2 : 0;
 }
 
 function isSiteAdmin(){
@@ -18,6 +18,10 @@ function isStaff(){
   return isSignedIn() && STAFF_ROLES.includes(role());
 }
 
+function isChiefOverseer(){
+  return isSignedIn() && role() === 'chief_overseer';
+}
+
 function isLeader(){
   return isSignedIn() && role() === 'leader' && typeof state.user.faction === 'string' && state.user.faction.length > 0;
 }
@@ -26,8 +30,27 @@ function myFaction(){
   return isLeader() ? state.user.faction : null;
 }
 
+function canEditDutyTasks(factionId) {
+  if (isSiteAdmin()) return true;
+  if (!isStaff() || !curates(factionId)) return false;
+  if ((role() === 'curator' || role() === 'server_admin') && can('manageDuties')) return true;
+  return can('editDutyTasks');
+}
+
 function curatedFactions(){
-  return isStaff() && Array.isArray(state.user.curatedFactions) ? state.user.curatedFactions : [];
+  if (isSiteAdmin()) return state.factions.filter(f => f.active !== false).map(f => f.id);
+  if (isChiefOverseer() && state.user.direction) {
+    const cats = DIRECTION_CATEGORIES[state.user.direction] || [];
+    const excludedKeys = EXCLUDED_FORUM_KEYS || [];
+    return state.factions
+      .filter(f => f.active !== false && cats.includes(f.category))
+      .filter(f => !excludedKeys.includes(f.forumKey))
+      .map(f => f.id);
+  }
+  if (isStaff() && Array.isArray(state.user.curatedFactions)) {
+    return state.user.curatedFactions.filter(id => state.factionsById[id] && state.factionsById[id].active !== false);
+  }
+  return [];
 }
 
 function can(perm){
@@ -41,7 +64,7 @@ function curates(factionId){
 }
 
 function canViewReports(){
-  return isSiteAdmin() || isLeader() || (isStaff() && can('viewReports'));
+  return isSiteAdmin() || isLeader() || (isStaff() && can('viewReports')) || isChiefOverseer();
 }
 
 function canCreateReports(){
@@ -64,6 +87,24 @@ function canManageDuties(){
   return isSiteAdmin() || (isStaff() && can('manageDuties'));
 }
 
+function canViewDutyStats() {
+  return canManageDuties();
+}
+
+function canViewDutyArchiveStats() {
+  if (isSiteAdmin()) return true;
+  if (isChiefOverseer()) return true;
+  if (isStaff() && myLevel() >= 6) return true;
+  if (role() === 'curator') return true;
+  return false;
+}
+
+function canManageDutyTemplates(factionId) {
+  if (isSiteAdmin()) return true;
+  if (!isStaff() || !curates(factionId)) return false;
+  return role() === 'curator' || role() === 'server_admin';
+}
+
 function isManager(){
   return isSiteAdmin() || (isStaff() && myLevel() >= 4);
 }
@@ -73,11 +114,11 @@ function isChief(){
 }
 
 function manageableLevels(){
-  if (isSiteAdmin()) return [1, 2, 3, 4, 5, 6];
+  if (isSiteAdmin()) return [2, 3, 4, 5, 6];
   if (!isStaff()) return [];
   if (myLevel() === 4) return [2, 3];
   if (myLevel() === 5) return [2, 3, 4];
-  if (myLevel() >= 6) return [1, 2, 3, 4, 5, 6];
+  if (myLevel() >= 6) return [2, 3, 4, 5, 6];
   return [];
 }
 
@@ -120,7 +161,7 @@ function canAccessTab(tab){
     case 'recovery':
       return isSiteAdmin();
     case 'audit':
-      return isSiteAdmin() || can('viewAudit');
+      return isSiteAdmin() || can('viewAudit') || isChiefOverseer();
     default:
       return false;
   }
@@ -128,7 +169,7 @@ function canAccessTab(tab){
 
 function roleLabel(u){
   if (!u) return 'Гость';
-  return ROLES[u.systemRole] || 'Пользователь';
+  return ROLES[u.systemRole] || 'Без роли';
 }
 
 function levelLabel(n){
@@ -136,7 +177,7 @@ function levelLabel(n){
 }
 
 function levelBadge(n){
-  return `<span class="level-badge" data-level="${Number(n) || 1}">${escapeHtml(levelLabel(n))}</span>`;
+  return `<span class="level-badge" data-level="${Number(n) || 2}">${escapeHtml(levelLabel(n))}</span>`;
 }
 
 function roleBadge(u){
@@ -147,6 +188,7 @@ function describeUser(u){
   if (!u) return 'Гость';
   const base = roleLabel(u);
   if (u.systemRole === 'leader' && u.faction) return `${base} ${factionName(u.faction)}`;
+  if (u.systemRole === 'chief_overseer' && u.direction) return `${base} (${OVERSEER_DIRECTION_LABELS[u.direction] || u.direction})`;
   if (STAFF_ROLES.includes(u.systemRole) && Array.isArray(u.curatedFactions) && u.curatedFactions.length) return `${base} ${u.curatedFactions.map(factionName).join(', ')}`;
   return base;
 }

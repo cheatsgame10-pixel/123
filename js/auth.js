@@ -35,6 +35,14 @@ function initAuth(){
         onSessionChanged(true);
         return;
       }
+      if (data.systemRole === 'user') {
+        await auth.signOut();
+        toast('Ваш аккаунт использует устаревшую роль. Обратитесь к администратору.', 'error');
+        state.authUser = null;
+        state.user = null;
+        onSessionChanged(true);
+        return;
+      }
       await removePendingUser(user.uid);
       state.user = normalizeUser(user.uid, data);
       _userUnsub = db.collection('users').doc(user.uid).onSnapshot(snap2 => {
@@ -77,8 +85,9 @@ function normalizeUser(uid, d){
     displayName: typeof d.displayName === 'string' ? d.displayName : '',
     avatarUrl: typeof d.avatarUrl === 'string' ? d.avatarUrl : '',
     serverLevel: Number.isInteger(d.serverLevel) ? d.serverLevel : 1,
-    systemRole: ROLES[d.systemRole] ? d.systemRole : 'user',
+    systemRole: ROLES[d.systemRole] ? d.systemRole : null,
     faction: typeof d.faction === 'string' && d.faction ? d.faction : null,
+    direction: typeof d.direction === 'string' && d.direction ? d.direction : null,
     curatedFactions: Array.isArray(d.curatedFactions) ? d.curatedFactions.filter(x => typeof x === 'string') : [],
     permissions: Array.isArray(d.permissions) ? d.permissions.filter(x => typeof x === 'string') : [],
     reportEditingEnabled: d.reportEditingEnabled === true,

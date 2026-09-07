@@ -23,8 +23,19 @@ function debounce(fn, ms){
 
 function pad2(n){ return String(n).padStart(2, '0'); }
 
+function getMoscowNow() {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  return new Date(utc + (3 * 3600000));
+}
+
+function getMoscowDate() {
+  const now = getMoscowNow();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
 function todayISO(){
-  const d = new Date();
+  const d = getMoscowNow();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
@@ -75,8 +86,7 @@ function daysLeftInfo(appointedDateStr, termText, forumKey){
   }
   const total = termNumber * termDaysFor(forumKey);
   const deadline = new Date(d.getTime() + (total + 1) * 86400000);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const today = getMoscowDate();
   const deadlineDay = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
   const diffDays = Math.floor((deadlineDay - today) / 86400000);
   const half = termDaysFor(forumKey) / 2;

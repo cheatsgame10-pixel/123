@@ -1,3 +1,5 @@
+let _factionsUnsub = null;
+
 async function loadFactions(){
   try {
     const snap = await db.collection('factions').get();
@@ -6,6 +8,25 @@ async function loadFactions(){
     console.error('Фракции', err);
     state.factions = [];
   }
+  rebuildFactionMaps();
+}
+
+function subscribeToFactions(){
+  if (_factionsUnsub) _factionsUnsub();
+  _factionsUnsub = db.collection('factions').onSnapshot(snap => {
+    state.factions = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort(sortByName);
+    rebuildFactionMaps();
+
+    if (state.tab === 'users') renderUsers();
+    if (state.tab === 'duties') renderDutyTable();
+    if (state.tab === 'factions') renderFactionsSection();
+    if (state.tab === 'leaders') renderLeaders();
+  }, err => {
+    console.error('Подписка на фракции', err);
+  });
+}
+
+function rebuildFactionMaps(){
   state.factionsById = {};
   state.factionsByForumKey = {};
   state.factions.forEach(f => {
@@ -29,11 +50,11 @@ function factionSide(f){
 
 function unmappedForumKeys(){
   if (!state.forum) return [];
-  return Object.keys(state.forum).filter(k => !state.factionsByForumKey[k]);
+  return Object.keys(state.forum).filter(k => !state.factionsByForumKey[k] && !EXCLUDED_FORUM_KEYS.includes(k));
 }
 
 function factionOptionsHtml(ids, selected){
-  const list = ids.map(id => state.factionsById[id]).filter(Boolean).sort(sortByName);
+  const list = ids.map(id => state.factionsById[id]).filter(Boolean).filter(f => f.active !== false).sort(sortByName);
   return list.map(f => `<option value="${escapeHtml(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('');
 }
 
@@ -44,6 +65,52 @@ function factionGroupedOptionsHtml(selected, includeEmpty){
     CATEGORY_ORDER.filter(c => groups[c]).map(c =>
       `<optgroup label="${escapeHtml(CATEGORY_NAMES[c])}">${groups[c].sort(sortByName).map(f =>
         `<option value="${escapeHtml(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}</optgroup>`).join('');
+}
+
+async function changeFactionId(oldId, newId){
+  if (oldId === newId) return;
+  if (state.factionsById[newId]) throw { code: 'already-exists' };
+  const oldDoc = await db.collection('factions').doc(oldId).get();
+  if (!oldDoc.exists) throw { code: 'not-found' };
+  const data = oldDoc.data();
+  const batch = db.batch();
+  batch.set(db.collection('factions').doc(newId), { ...data, updatedAt: FieldValue.serverTimestamp() });
+  batch.delete(db.collection('factions').doc(oldId));
+
+  const updateCollectionField = async (col, field) => {
+    const snap = await db.collection(col).where(field, '==', oldId).get();
+    snap.forEach(doc => {
+      batch.update(doc.ref, { [field]: newId, updatedAt: FieldValue.serverTimestamp() });
+    });
+  };
+
+  await updateCollectionField('leaderHistory', 'factionId');
+  await updateCollectionField('reports', 'factionId');
+  await updateCollectionField('dutyAssignments', 'factionId');
+  await updateCollectionField('users', 'faction');
+
+  const dutyWeeksSnap = await db.collection('dutyWeeks').where('factionId', '==', oldId).get();
+  dutyWeeksSnap.forEach(doc => {
+    const weekData = doc.data();
+    const oldWeekId = doc.id;
+    const suffix = oldWeekId.substring(oldId.length);
+    const newWeekId = newId + suffix;
+    batch.set(db.collection('dutyWeeks').doc(newWeekId), { ...weekData, factionId: newId, updatedAt: FieldValue.serverTimestamp() });
+    batch.delete(db.collection('dutyWeeks').doc(oldWeekId));
+  });
+
+  const templateDoc = await db.collection('dutyTemplates').doc(oldId).get();
+  if (templateDoc.exists) {
+    batch.set(db.collection('dutyTemplates').doc(newId), { ...templateDoc.data(), updatedAt: FieldValue.serverTimestamp() });
+    batch.delete(db.collection('dutyTemplates').doc(oldId));
+  }
+
+  try {
+    await batch.commit();
+    await loadFactions();
+  } catch (err) {
+    failToast(err, 'Не удалось изменить ID фракции');
+  }
 }
 
 async function syncFactionsFromForum(){
@@ -120,9 +187,9 @@ function renderFactionsSection(){
 
 function openFactionModal(id){
   const f = id ? state.factionsById[id] : null;
-  const forumKeys = state.forum ? Object.keys(state.forum).sort((a, b) => a.localeCompare(b, 'ru')) : [];
+  const forumKeys = state.forum ? Object.keys(state.forum).filter(k => !EXCLUDED_FORUM_KEYS.includes(k)).sort((a, b) => a.localeCompare(b, 'ru')) : [];
   const activeChecked = f && f.active !== false ? 'checked' : '';
-  const disabledAttr = f ? '' : 'disabled'; // для новой фракции показываем toggle, но он всегда активен по умолчанию
+  const disabledAttr = f ? '' : 'disabled';
   openModal(`
     <h2>${f ? 'Фракция' : 'Новая фракция'}</h2>
     <div class="field"><label for="fName">Название</label><input type="text" id="fName" maxlength="80" value="${escapeHtml(f ? f.name : '')}" placeholder="Например, LSPD"></div>
@@ -132,6 +199,10 @@ function openFactionModal(id){
     </div>
     <div class="field"><label for="fCategory">Категория</label><select id="fCategory">${CATEGORY_ORDER.map(c => `<option value="${c}"${(f ? f.category : 'other') === c ? ' selected' : ''}>${CATEGORY_NAMES[c]}</option>`).join('')}</select></div>
     ${f ? `
+      <div class="field">
+        <label for="fId">ID (изменение повлечёт перенос данных)</label>
+        <input type="text" id="fId" maxlength="60" value="${escapeHtml(f.id)}">
+      </div>
       <div class="field">
         <label class="toggle-label">
           <span class="toggle-label-text">Фракция активна</span>
@@ -160,6 +231,7 @@ async function saveFaction(id){
   const name = document.getElementById('fName').value.trim();
   const forumKey = document.getElementById('fForumKey').value.trim();
   const category = document.getElementById('fCategory').value;
+  const newId = document.getElementById('fId').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
   if (!name){ toast('Введите название фракции', 'error'); return; }
   setLoading(btn, true);
   try {
@@ -167,12 +239,17 @@ async function saveFaction(id){
     if (id){
       const old = state.factionsById[id];
       const active = document.getElementById('fActive').checked;
+      if (newId !== id) {
+        if (!newId) { toast('ID не может быть пустым', 'error'); setLoading(btn, false); return; }
+        if (state.factionsById[newId]) { toast('Фракция с таким ID уже существует', 'error'); setLoading(btn, false); return; }
+        await changeFactionId(id, newId);
+        id = newId;
+      }
       const patch = { name, forumKey, category, active, updatedAt: FieldValue.serverTimestamp() };
       addVersion(batch, 'faction', id, stripSystem(old));
       batch.update(db.collection('factions').doc(id), patch);
       addAudit(batch, { action: 'Изменил данные фракции', objectType: 'faction', objectId: id, oldValue: { name: old.name, forumKey: old.forumKey, category: old.category, active: old.active }, newValue: { name, forumKey, category, active }, faction: id });
     } else {
-      let newId = (document.getElementById('fId').value.trim() || slugify(name)).toLowerCase().replace(/[^a-z0-9-]/g, '');
       if (!newId){ toast('ID может содержать только латиницу, цифры и дефис', 'error'); setLoading(btn, false); return; }
       if (state.factionsById[newId]){ toast('Фракция с таким ID уже существует', 'error'); setLoading(btn, false); return; }
       id = newId;
