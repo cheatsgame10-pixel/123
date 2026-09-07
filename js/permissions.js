@@ -105,6 +105,10 @@ function canManageDutyTemplates(factionId) {
   return role() === 'curator' || role() === 'server_admin';
 }
 
+function canManageSupport(){
+  return isSiteAdmin();
+}
+
 function isManager(){
   return isSiteAdmin() || (isStaff() && myLevel() >= 4);
 }
@@ -147,7 +151,6 @@ function canAccessTab(tab){
       return true;
     case 'dashboard':
     case 'news':
-    case 'support':
       return isSignedIn();
     case 'reports':
       return canViewReports();

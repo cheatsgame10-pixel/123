@@ -2722,3 +2722,120 @@ body.sidebar-collapsed .topbar {
     width: 100%;
   }
 }
+
+.support-btn {
+  position: relative;
+}
+
+.support-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--amber);
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.support-modal {
+  max-width: 700px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.support-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.support-tabs .btn {
+  flex: 1;
+}
+
+.ticket-item {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.ticket-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ticket-title {
+  font-weight: 600;
+  flex: 1;
+  min-width: 150px;
+}
+
+.ticket-date {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.ticket-message {
+  margin: 8px 0;
+  padding: 10px;
+  background: rgba(139, 116, 255, 0.05);
+  border-radius: 8px;
+}
+
+.ticket-message.admin {
+  background: rgba(61, 220, 132, 0.05);
+}
+
+.ticket-message.own {
+  background: rgba(79, 140, 255, 0.05);
+}
+
+.msg-author {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.msg-text {
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.msg-date {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  text-align: right;
+}
+
+.ticket-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.char-count {
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: right;
+  margin-top: 4px;
+}
+
+@media (max-width: 600px) {
+  .support-modal {
+    max-width: 95vw;
+  }
+}

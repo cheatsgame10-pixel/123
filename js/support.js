@@ -6,6 +6,7 @@ let _replyText = '';
 let _titleInput = '';
 let _descInput = '';
 let _charCount = 0;
+let _unreadCount = 0;
 
 function openSupportModal(){
   _selectedTicketType = 'bug';
@@ -17,10 +18,10 @@ function openSupportModal(){
   _charCount = 0;
   renderSupportModal();
   loadUserTickets();
+  updateUnreadBadge();
 }
 
 function renderSupportModal(){
-  const isAdmin = isSiteAdmin();
   const html = `
     <h2>Поддержка</h2>
     <div class="support-tabs">
@@ -35,12 +36,23 @@ function renderSupportModal(){
     _supportTab = 'new';
     _editingTicketId = null;
     renderSupportContent();
+    updateSupportTabs();
   });
   document.getElementById('supportTabHistory').addEventListener('click', () => {
     _supportTab = 'history';
     renderSupportContent();
+    updateSupportTabs();
   });
   renderSupportContent();
+}
+
+function updateSupportTabs(){
+  const newTabBtn = document.getElementById('supportTabNew');
+  const histTabBtn = document.getElementById('supportTabHistory');
+  if (newTabBtn && histTabBtn) {
+    newTabBtn.classList.toggle('btn-primary', _supportTab === 'new');
+    histTabBtn.classList.toggle('btn-primary', _supportTab === 'history');
+  }
 }
 
 function renderSupportContent(){
@@ -109,6 +121,7 @@ function renderSupportContent(){
     container.innerHTML = `<div id="ticketsList"><div class="hint">Загрузка...</div></div>`;
     loadUserTickets();
   }
+  updateSupportTabs();
 }
 
 async function createTicket(){
@@ -134,6 +147,7 @@ async function createTicket(){
     });
     toast('Заявка отправлена');
     closeModal();
+    updateUnreadBadge();
   } catch (err) {
     failToast(err, 'Не удалось отправить заявку');
   }
@@ -165,17 +179,19 @@ async function loadUserTickets(){
   if (!container) return;
   container.innerHTML = '<div class="hint">Загрузка...</div>';
   try {
-    let q;
+    let query;
     if (isSiteAdmin()) {
-      q = db.collection('supportTickets').where('deleted', '==', false);
+      query = db.collection('supportTickets').where('deleted', '==', false);
     } else {
-      q = db.collection('supportTickets')
+      query = db.collection('supportTickets')
         .where('authorId', '==', state.user.uid)
         .where('deleted', '==', false);
     }
-    const snap = await q.orderBy('createdAt', 'desc').limit(100).get();
+    const snap = await query.limit(100).get();
     _tickets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _tickets.sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
     renderTicketsList();
+    await updateUnreadBadge();
   } catch (err) {
     console.error('Загрузка заявок', err);
     container.innerHTML = errorState('Не удалось загрузить заявки. ' + humanError(err));
@@ -205,7 +221,7 @@ function renderTicketsList(){
             <div class="msg-author">${escapeHtml(ticket.authorNickname || ticket.authorEmail)}</div>
             <div class="msg-text">${escapeHtml(ticket.description)}</div>
           </div>
-          ${ticket.comments.map(c => `
+          ${(ticket.comments || []).map(c => `
             <div class="ticket-message ${c.authorId === state.user.uid ? 'own' : 'admin'}">
               <div class="msg-author">${escapeHtml(c.authorName)} ${c.authorRole ? `<span class="hint">(${escapeHtml(c.authorRole)})</span>` : ''}</div>
               <div class="msg-text">${escapeHtml(c.text)}</div>
@@ -276,6 +292,7 @@ function cancelTicket(ticketId){
     }).then(() => {
       toast('Заявка отменена');
       loadUserTickets();
+      updateUnreadBadge();
     }).catch(err => failToast(err, 'Не удалось отменить заявку'));
   });
 }
@@ -354,7 +371,7 @@ async function sendReply(ticket, text, isAdmin, newStatus){
     authorName: state.user.displayName || state.user.email,
     authorRole: isAdmin ? roleLabel(state.user) : '',
     text: text.trim(),
-    createdAt: FieldValue.serverTimestamp()
+    createdAt: firebase.firestore.Timestamp.now()
   };
   try {
     const ticketRef = db.collection('supportTickets').doc(ticket.id);
@@ -373,8 +390,27 @@ async function sendReply(ticket, text, isAdmin, newStatus){
     toast('Ответ отправлен');
     closeModal();
     loadUserTickets();
+    updateUnreadBadge();
   } catch (err) {
     failToast(err, 'Не удалось отправить ответ');
+  }
+}
+
+async function updateUnreadBadge(){
+  if (!isSiteAdmin()) return;
+  try {
+    const snap = await db.collection('supportTickets')
+      .where('deleted', '==', false)
+      .where('status', '==', 'В обработке')
+      .get();
+    _unreadCount = snap.size;
+    const badge = document.getElementById('supportUnreadBadge');
+    if (badge) {
+      badge.textContent = _unreadCount;
+      badge.hidden = _unreadCount === 0;
+    }
+  } catch (err) {
+    console.error('Не удалось обновить счётчик', err);
   }
 }
 

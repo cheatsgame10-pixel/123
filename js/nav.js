@@ -9,9 +9,6 @@ const NAV_GROUPS = [
     { id: 'reports', label: 'Отчёты', icon: '<path d="M6 3h9l5 5v13H6z"/><path d="M14 3v6h6"/><path d="M9 13h7M9 17h7"/>' },
     { id: 'duties', label: 'Обязанности', icon: '<path d="M9 5h6l1 2h3v14H5V7h3z"/><path d="m9 13 2 2 4-4"/>' }
   ]},
-  { title: 'Обратная связь', items: [
-    { id: 'support', label: 'Поддержка', icon: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/>' }
-  ]},
   { title: 'Администрирование', items: [
     { id: 'pending', label: 'Доступ', icon: '<path d="M12 2v4M12 22v-4M4 12H2M6 12H4M20 12h-2M22 12h-2M19.07 4.93l-2.83 2.83M4.93 19.07l2.83-2.83M19.07 19.07l-2.83-2.83M4.93 4.93l2.83 2.83"/>' },
     { id: 'users', label: 'Пользователи', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
@@ -71,7 +68,16 @@ function renderSidebar(){
 
 function renderTopbar(){
   const right = document.getElementById('topbarRight');
-  right.innerHTML = '';
+  right.innerHTML = `
+    <button class="btn btn-icon support-btn" id="supportTopBtn" title="Поддержка">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 8v.01M12 11v.01"/></svg>
+      <span id="supportUnreadBadge" class="support-badge" hidden>0</span>
+    </button>
+  `;
+  document.getElementById('supportTopBtn')?.addEventListener('click', openSupportModal);
+  if (isSiteAdmin()) {
+    updateUnreadBadge();
+  }
 }
 
 function setPageTitle(tab){

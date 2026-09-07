@@ -8,7 +8,6 @@ const TAB_LOADERS = {
   news: () => loadNews(),
   reports: () => { initReportForm(); if (canViewReports()) loadReports(); },
   duties: () => loadDuties(),
-  support: () => loadTickets(),
   pending: () => loadPendingUsers(),
   users: () => loadUsers(),
   factions: () => renderFactionsSection(),
@@ -59,7 +58,6 @@ function handleAction(el){
     'retry-reports': () => loadReports(),
     'retry-users': () => loadUsers(),
     'retry-news': () => loadNews(),
-    'retry-support': () => loadTickets(),
     'retry-duties': () => loadDuties(),
     'retry-audit': () => loadAudit(false),
     'retry-recovery': () => loadRecovery(),
@@ -87,10 +85,6 @@ function handleAction(el){
     'news-edit': () => openNewsModal(id),
     'news-save': () => saveNews(id || null),
     'news-delete': () => deleteNews(id),
-    'ticket-send': () => sendTicket(),
-    'ticket-respond': () => openTicketModal(id),
-    'ticket-save': () => saveTicketResponse(id),
-    'ticket-delete': () => deleteTicket(id),
     'duty-take': () => openDutyTakeModal(),
     'duty-take-save': () => saveDutyTake(),
     'duty-edit': () => openDutyEditModal(id),
@@ -107,7 +101,8 @@ function handleAction(el){
     'versions': () => openVersionsModal(type, id),
     'version-restore': () => restoreVersion(type, id, el.dataset.version),
     'recover': () => recoverRecord(type, id),
-    'purge': () => purgeRecord(type, id)
+    'purge': () => purgeRecord(type, id),
+    'support-open': () => openSupportModal()
   };
   if (map[a]) map[a]();
 }
