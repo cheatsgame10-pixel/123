@@ -135,6 +135,7 @@ async function login(){
 
 async function logout(){
   try {
+    if (typeof stopGlobalSupportUnreadListener === 'function') stopGlobalSupportUnreadListener();
     await stopPresenceAndSignalOffline();
     await auth.signOut();
     toast('Вы вышли из аккаунта');

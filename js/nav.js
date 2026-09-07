@@ -69,16 +69,17 @@ function renderSidebar(){
 
 function renderTopbar(){
   const right = document.getElementById('topbarRight');
+  if (!isSignedIn()) {
+    right.innerHTML = '';
+    return;
+  }
   right.innerHTML = `
     <button class="btn btn-icon support-btn" id="supportTopBtn" title="Поддержка">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 8v.01M12 11v.01"/></svg>
-      <span id="supportUnreadBadge" class="support-badge" hidden>0</span>
+      <span id="supportUnreadBadge" class="support-badge" hidden>${_unreadCount}</span>
     </button>
   `;
   document.getElementById('supportTopBtn')?.addEventListener('click', openSupportModal);
-  if (isSiteAdmin()) {
-    updateUnreadBadge();
-  }
 }
 
 function setPageTitle(tab){
@@ -129,11 +130,116 @@ function startDateTimeUpdater(){
 }
 
 const THEME_COLORS = {
-  blue: { primary: '#4f8cff', light: 'rgba(79, 140, 255, 0.15)', hover: '#3a7be6', line: 'rgba(79, 140, 255, 0.13)', lineStrong: 'rgba(79, 140, 255, 0.26)' },
-  orange: { primary: '#ff8c42', light: 'rgba(255, 140, 66, 0.15)', hover: '#e67a3a', line: 'rgba(255, 140, 66, 0.13)', lineStrong: 'rgba(255, 140, 66, 0.26)' },
-  red: { primary: '#ff5468', light: 'rgba(255, 84, 104, 0.15)', hover: '#e64a5c', line: 'rgba(255, 84, 104, 0.13)', lineStrong: 'rgba(255, 84, 104, 0.26)' },
-  green: { primary: '#3ddc84', light: 'rgba(61, 220, 132, 0.15)', hover: '#35c476', line: 'rgba(61, 220, 132, 0.13)', lineStrong: 'rgba(61, 220, 132, 0.26)' },
-  purple: { primary: '#8b5cff', light: 'rgba(139, 92, 255, 0.15)', hover: '#7d52e6', line: 'rgba(139, 92, 255, 0.13)', lineStrong: 'rgba(139, 92, 255, 0.26)' }
+  blue: {
+    // Base colors
+    bg: '#05070d',
+    bg2: '#0a0f1e',
+    bg3: '#0f1529',
+    sidebar: 'rgba(8, 11, 22, .72)',
+    surface: '#0c1122',
+    surfaceHover: '#121a33',
+    surfaceElevated: '#131a3a',
+    border: 'rgba(79, 140, 255, 0.13)',
+    borderStrong: 'rgba(79, 140, 255, 0.26)',
+    // Accent colors
+    primary: '#4f8cff',
+    hover: '#3a7be6',
+    active: '#2e6ad0',
+    light: 'rgba(79, 140, 255, 0.15)',
+    soft: 'rgba(79, 140, 255, 0.08)',
+    glow: 'rgba(79, 140, 255, 0.25)',
+    bgGradient1: 'rgba(79, 140, 255, 0.20)',
+    bgGradient2: 'rgba(79, 140, 255, 0.08)',
+    bgPattern: 'rgba(79, 140, 255, 0.12)'
+  },
+  orange: {
+    // Base colors - warm dark orange-gray
+    bg: '#0d0a07',
+    bg2: '#14120e',
+    bg3: '#1a1610',
+    sidebar: 'rgba(18, 14, 8, .72)',
+    surface: '#16140f',
+    surfaceHover: '#1e1a14',
+    surfaceElevated: '#2a2418',
+    border: 'rgba(255, 140, 66, 0.13)',
+    borderStrong: 'rgba(255, 140, 66, 0.26)',
+    // Accent colors
+    primary: '#ff8c42',
+    hover: '#e67a3a',
+    active: '#cc6f30',
+    light: 'rgba(255, 140, 66, 0.15)',
+    soft: 'rgba(255, 140, 66, 0.08)',
+    glow: 'rgba(255, 140, 66, 0.25)',
+    bgGradient1: 'rgba(255, 140, 66, 0.20)',
+    bgGradient2: 'rgba(255, 140, 66, 0.08)',
+    bgPattern: 'rgba(255, 140, 66, 0.12)'
+  },
+  red: {
+    // Base colors - dark burgundy
+    bg: '#0d0709',
+    bg2: '#120e10',
+    bg3: '#181214',
+    sidebar: 'rgba(18, 10, 12, .72)',
+    surface: '#161010',
+    surfaceHover: '#1e1416',
+    surfaceElevated: '#2a1818',
+    border: 'rgba(255, 84, 104, 0.13)',
+    borderStrong: 'rgba(255, 84, 104, 0.26)',
+    // Accent colors
+    primary: '#ff5468',
+    hover: '#e64a5c',
+    active: '#cc424a',
+    light: 'rgba(255, 84, 104, 0.15)',
+    soft: 'rgba(255, 84, 104, 0.08)',
+    glow: 'rgba(255, 84, 104, 0.25)',
+    bgGradient1: 'rgba(255, 84, 104, 0.20)',
+    bgGradient2: 'rgba(255, 84, 104, 0.08)',
+    bgPattern: 'rgba(255, 84, 104, 0.12)'
+  },
+  green: {
+    // Base colors - dark green-gray
+    bg: '#070d0a',
+    bg2: '#0e120f',
+    bg3: '#141813',
+    sidebar: 'rgba(10, 16, 12, .72)',
+    surface: '#0f1310',
+    surfaceHover: '#161a16',
+    surfaceElevated: '#1e2418',
+    border: 'rgba(61, 220, 132, 0.13)',
+    borderStrong: 'rgba(61, 220, 132, 0.26)',
+    // Accent colors
+    primary: '#3ddc84',
+    hover: '#35c476',
+    active: '#2a9e5f',
+    light: 'rgba(61, 220, 132, 0.15)',
+    soft: 'rgba(61, 220, 132, 0.08)',
+    glow: 'rgba(61, 220, 132, 0.25)',
+    bgGradient1: 'rgba(61, 220, 132, 0.20)',
+    bgGradient2: 'rgba(61, 220, 132, 0.08)',
+    bgPattern: 'rgba(61, 220, 132, 0.12)'
+  },
+  purple: {
+    // Base colors - dark purple-gray
+    bg: '#09070d',
+    bg2: '#100e16',
+    bg3: '#16131c',
+    sidebar: 'rgba(12, 10, 18, .72)',
+    surface: '#110f16',
+    surfaceHover: '#18161f',
+    surfaceElevated: '#241e2a',
+    border: 'rgba(139, 92, 255, 0.13)',
+    borderStrong: 'rgba(139, 92, 255, 0.26)',
+    // Accent colors
+    primary: '#8b5cff',
+    hover: '#7d52e6',
+    active: '#6342b8',
+    light: 'rgba(139, 92, 255, 0.15)',
+    soft: 'rgba(139, 92, 255, 0.08)',
+    glow: 'rgba(139, 92, 255, 0.25)',
+    bgGradient1: 'rgba(139, 92, 255, 0.20)',
+    bgGradient2: 'rgba(139, 92, 255, 0.08)',
+    bgPattern: 'rgba(139, 92, 255, 0.12)'
+  }
 };
 
 function initThemePicker(){
@@ -152,11 +258,28 @@ function initThemePicker(){
 function applyTheme(theme){
   const colors = THEME_COLORS[theme] || THEME_COLORS.blue;
   const root = document.documentElement;
+  
+  // Apply base colors
+  root.style.setProperty('--theme-bg', colors.bg);
+  root.style.setProperty('--theme-bg-2', colors.bg2);
+  root.style.setProperty('--theme-bg-3', colors.bg3);
+  root.style.setProperty('--theme-sidebar', colors.sidebar);
+  root.style.setProperty('--theme-surface', colors.surface);
+  root.style.setProperty('--theme-surface-hover', colors.surfaceHover);
+  root.style.setProperty('--theme-surface-elevated', colors.surfaceElevated);
+  root.style.setProperty('--theme-border', colors.border);
+  root.style.setProperty('--theme-border-strong', colors.borderStrong);
+  
+  // Apply accent colors
   root.style.setProperty('--theme-primary', colors.primary);
-  root.style.setProperty('--theme-primary-light', colors.light);
   root.style.setProperty('--theme-primary-hover', colors.hover);
-  root.style.setProperty('--theme-line', colors.line);
-  root.style.setProperty('--theme-line-strong', colors.lineStrong);
+  root.style.setProperty('--theme-primary-active', colors.active);
+  root.style.setProperty('--theme-primary-light', colors.light);
+  root.style.setProperty('--theme-primary-soft', colors.soft);
+  root.style.setProperty('--theme-primary-glow', colors.glow);
+  root.style.setProperty('--theme-bg-gradient-1', colors.bgGradient1);
+  root.style.setProperty('--theme-bg-gradient-2', colors.bgGradient2);
+  root.style.setProperty('--theme-bg-pattern', colors.bgPattern);
 
   document.querySelectorAll('.theme-color').forEach(el => {
     el.classList.toggle('active', el.dataset.theme === theme);

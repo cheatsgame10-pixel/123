@@ -8,15 +8,15 @@ async function loadReports(more){
   if (!more){ _reports = []; _reportsCursor = null; list.innerHTML = skeletonRows(4); }
   try {
     let q = db.collection('reports');
-    let sortClient = true;
     if (isSiteAdmin()){
       q = q.orderBy('createdAt', 'desc').limit(REPORTS_PAGE);
       if (_reportsCursor) q = q.startAfter(_reportsCursor);
-      sortClient = false;
     } else if (isLeader()){
-      q = q.where('factionId', '==', myFaction()).where('deleted', '==', false).limit(300);
+      q = q.where('factionId', '==', myFaction()).where('deleted', '==', false).orderBy('createdAt', 'desc').limit(REPORTS_PAGE);
+      if (_reportsCursor) q = q.startAfter(_reportsCursor);
     } else if (isStaff() && can('viewReports') && curatedFactions().length){
-      q = q.where('factionId', 'in', curatedFactions().slice(0, 30)).where('deleted', '==', false).limit(300);
+      q = q.where('factionId', 'in', curatedFactions().slice(0, 30)).where('deleted', '==', false).orderBy('createdAt', 'desc').limit(REPORTS_PAGE);
+      if (_reportsCursor) q = q.startAfter(_reportsCursor);
     } else {
       _reports = [];
       renderReports();
@@ -24,7 +24,7 @@ async function loadReports(more){
     }
     const snap = await q.get();
     const batch = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (isSiteAdmin()){
+    if (isSiteAdmin() || isLeader() || (isStaff() && can('viewReports'))){
       _reportsCursor = snap.docs[snap.docs.length - 1] || _reportsCursor;
       _reportsHasMore = snap.docs.length === REPORTS_PAGE;
       _reports = more ? _reports.concat(batch) : batch;
@@ -32,7 +32,6 @@ async function loadReports(more){
       _reports = batch;
       _reportsHasMore = false;
     }
-    if (sortClient) _reports.sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
     renderReports();
   } catch (err){
     console.error('Отчёты', err);
@@ -42,9 +41,9 @@ async function loadReports(more){
 
 function renderReports(){
   const list = document.getElementById('reportsList');
-  const f = document.getElementById('reportFilterFaction').value;
-  const start = document.getElementById('reportFilterStart').value;
-  const end = document.getElementById('reportFilterEnd').value;
+  const f = document.getElementById('reportFilterFaction')?.value || '';
+  const start = document.getElementById('reportFilterStart')?.value || '';
+  const end = document.getElementById('reportFilterEnd')?.value || '';
   document.getElementById('reportsDeletedWrap').hidden = !isSiteAdmin();
 
   let rows = _reports;
@@ -60,25 +59,32 @@ function renderReports(){
   }
 
   const canEditOwn = isLeader() && state.user.reportEditingEnabled === true;
+  const isAdmin = isSiteAdmin();
+  const isStaffUser = isStaff();
+
   list.innerHTML = rows.map(r => `
     <div class="report-item${r.deleted ? ' is-deleted' : ''}">
       <div class="r-top">
         <div>
           <div class="r-name">${escapeHtml(r.leaderName)} — ${escapeHtml(r.factionName || factionName(r.factionId))}</div>
-          <div class="r-meta">${fmtISO(r.date)}${(isSiteAdmin() || isStaff()) && r.authorEmail ? ' · ' + escapeHtml(r.authorNickname || r.authorEmail) : ''}${r.updatedAt && r.editedAt ? ' · изменён ' + fmtDateTime(r.editedAt) : ''}</div>
+          <div class="r-meta">${fmtISO(r.date)}${(isAdmin || isStaffUser) && r.authorEmail ? ' · ' + escapeHtml(r.authorNickname || r.authorEmail) : ''}${r.updatedAt && r.editedAt ? ' · изменён ' + fmtDateTime(r.editedAt) : ''}</div>
         </div>
         <div class="r-actions">
           ${canEditOwn && r.authorId === state.user.uid && !r.deleted ? `<button class="btn btn-ghost btn-sm" data-action="report-edit" data-id="${escapeHtml(r.id)}">Изменить комментарий</button>` : ''}
-          ${isSiteAdmin() ? `<button class="btn btn-ghost btn-sm" data-action="versions" data-type="reports" data-id="${escapeHtml(r.id)}">История</button>` : ''}
-          ${canDeleteReport(r) && !r.deleted ? `<button class="btn btn-ghost btn-sm danger-text" data-action="report-delete" data-id="${escapeHtml(r.id)}">Удалить</button>` : ''}
-          ${isSiteAdmin() && r.deleted ? `<button class="btn btn-ghost btn-sm" data-action="report-restore" data-id="${escapeHtml(r.id)}">Восстановить</button><button class="btn btn-ghost btn-sm danger-text" data-action="purge" data-type="reports" data-id="${escapeHtml(r.id)}">Удалить навсегда</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-ghost btn-sm" data-action="versions" data-type="reports" data-id="${escapeHtml(r.id)}">История</button>` : ''}
+          ${isAdmin && !r.deleted ? `<button class="btn btn-ghost btn-sm danger-text" data-action="report-delete" data-id="${escapeHtml(r.id)}">Удалить</button>` : ''}
+          ${isAdmin && r.deleted ? `<button class="btn btn-ghost btn-sm" data-action="report-restore" data-id="${escapeHtml(r.id)}">Восстановить</button><button class="btn btn-ghost btn-sm danger-text" data-action="purge" data-type="reports" data-id="${escapeHtml(r.id)}">Удалить навсегда</button>` : ''}
+          ${isStaffUser && curates(r.factionId) && !r.deleted ? `<button class="btn btn-ghost btn-sm" data-action="report-curator-comment" data-id="${escapeHtml(r.id)}">Комментарий куратора</button>` : ''}
+          ${isStaffUser && curates(r.factionId) && !r.deleted && !r.viewedByCurator ? `<button class="btn btn-ghost btn-sm" data-action="report-mark-viewed" data-id="${escapeHtml(r.id)}">Отметить просмотренным</button>` : ''}
         </div>
       </div>
       ${r.problems ? `<div class="r-field"><b>Проблемы:</b> ${escapeHtml(r.problems)}</div>` : ''}
       ${r.improvements ? `<div class="r-field"><b>Улучшения:</b> ${escapeHtml(r.improvements)}</div>` : ''}
-      ${r.comment ? `<div class="r-field"><b>Комментарий:</b> ${escapeHtml(r.comment)}</div>` : ''}
+      ${r.comment ? `<div class="r-field"><b>Комментарий лидера:</b> ${escapeHtml(r.comment)}</div>` : ''}
+      ${r.curatorComment ? `<div class="r-field admin-reply"><b>Комментарий куратора:</b> ${escapeHtml(r.curatorComment)}</div>` : ''}
+      ${r.viewedByCurator ? `<div class="r-field"><span class="badge badge-green">Просмотрен куратором</span> ${r.viewedAt ? fmtDateTime(r.viewedAt) : ''}</div>` : ''}
       ${r.deleted ? `<div class="r-field deleted-note">Удалён ${fmtDateTime(r.deletedAt)}${r.deletedByEmail ? ' · ' + escapeHtml(r.deletedByEmail) : ''}${r.deleteReason ? ' · ' + escapeHtml(r.deleteReason) : ''}</div>` : ''}
-    </div>`).join('') + (isSiteAdmin() && _reportsHasMore && !f && !start && !end ? `<button class="btn btn-block" data-action="reports-more">Загрузить ещё</button>` : '');
+    </div>`).join('') + (isAdmin && _reportsHasMore && !f && !start && !end ? `<button class="btn btn-block" data-action="reports-more">Загрузить ещё</button>` : '');
 }
 
 function initReportForm(){
@@ -88,7 +94,7 @@ function initReportForm(){
     locked.hidden = false;
     body.hidden = true;
     locked.innerHTML = isSignedIn()
-      ? emptyState('У вас нет доступа к отчётам. Доступ выдаёт администратор сайта.')
+      ? emptyState('У вас нет доступа к отчётам.')
       : lockedState('Войдите, чтобы открыть раздел отчётов.');
     return;
   }
@@ -96,8 +102,10 @@ function initReportForm(){
   body.hidden = false;
 
   const form = document.querySelector('#panel-reports .form-card');
-  form.hidden = !canCreateReports();
-  document.querySelector('#panel-reports .report-layout').classList.toggle('single', !canCreateReports());
+  const isLeaderUser = isLeader();
+  form.hidden = !isLeaderUser;
+  document.querySelector('#panel-reports .report-layout').classList.toggle('single', !isLeaderUser);
+
   const select = document.getElementById('reportFaction');
   const filter = document.getElementById('reportFilterFaction');
   const ids = reportFactionIds();
@@ -105,16 +113,13 @@ function initReportForm(){
   filter.innerHTML = `<option value="">Все доступные</option>` + factionOptionsHtml(viewIds, '');
   if (!document.getElementById('reportDate').value) document.getElementById('reportDate').value = todayISO();
 
-  if (isLeader()){
+  if (isLeaderUser){
     document.getElementById('reportFormTitle').textContent = `Новый отчёт — ${factionName(myFaction())}`;
     select.innerHTML = factionOptionsHtml([myFaction()], myFaction());
     select.disabled = true;
     document.getElementById('reportName').value = state.user.displayName || '';
   } else {
-    document.getElementById('reportFormTitle').textContent = 'Новый отчёт';
-    select.innerHTML = ids.length ? factionOptionsHtml(ids, select.value) : '<option value="">Нет доступных фракций</option>';
-    select.disabled = !ids.length;
-    updateReportLeaderName();
+    select.innerHTML = '';
   }
 }
 
@@ -128,15 +133,15 @@ function updateReportLeaderName(){
 }
 
 async function saveReport(){
+  if (!isLeader()) return;
   const btn = document.getElementById('saveReportBtn');
-  const factionId = isLeader() ? myFaction() : document.getElementById('reportFaction').value;
+  const factionId = myFaction();
   const leaderName = document.getElementById('reportName').value.trim();
   const date = document.getElementById('reportDate').value;
   const problems = document.getElementById('reportProblems').value.trim();
   const improvements = document.getElementById('reportImprovements').value.trim();
   const comment = document.getElementById('reportComment').value.trim();
   if (!factionId || !leaderName || !date){ toast('Заполните фракцию, имя лидера и дату', 'error'); return; }
-  if (!reportFactionIds().includes(factionId)){ toast('У вас нет прав создавать отчёт для этой фракции', 'error'); return; }
   setLoading(btn, true);
   try {
     const f = state.factionsById[factionId];
@@ -181,6 +186,7 @@ function openReportEditModal(id){
 }
 
 async function saveReportComment(id){
+  if (!isLeader()) return;
   const btn = document.getElementById('rEditSaveBtn');
   const comment = document.getElementById('rEditComment').value.trim();
   setLoading(btn, true);
@@ -196,9 +202,60 @@ async function saveReportComment(id){
   }
 }
 
+function openCuratorCommentModal(id){
+  const r = _reports.find(x => x.id === id);
+  if (!r) return;
+  openModal(`
+    <h2>Комментарий куратора</h2>
+    <p class="sub">${escapeHtml(r.factionName)} · ${fmtISO(r.date)}</p>
+    <div class="field"><label for="curatorCommentText">Комментарий</label><textarea id="curatorCommentText" rows="5" maxlength="4000">${escapeHtml(r.curatorComment || '')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-action="modal-close">Отмена</button>
+      <button class="btn btn-primary" id="curatorCommentSaveBtn" data-action="report-curator-comment-save" data-id="${escapeHtml(id)}"><span class="spinner"></span><span>Сохранить</span></button>
+    </div>`);
+}
+
+async function saveCuratorComment(id){
+  if (!isStaff() || !curates(_reports.find(x => x.id === id)?.factionId)) return;
+  const btn = document.getElementById('curatorCommentSaveBtn');
+  const comment = document.getElementById('curatorCommentText').value.trim();
+  setLoading(btn, true);
+  try {
+    await db.collection('reports').doc(id).update({
+      curatorComment: comment,
+      curatorId: state.user.uid,
+      curatorName: state.user.displayName || state.user.email,
+      curatorCommentAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    closeModal();
+    toast('Комментарий сохранён');
+    loadReports();
+  } catch (err){
+    failToast(err, 'Не удалось сохранить комментарий');
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+async function markReportViewed(id){
+  if (!isStaff() || !curates(_reports.find(x => x.id === id)?.factionId)) return;
+  try {
+    await db.collection('reports').doc(id).update({
+      viewedByCurator: true,
+      viewedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    toast('Отчёт отмечен просмотренным');
+    loadReports();
+  } catch (err){
+    failToast(err, 'Не удалось отметить отчёт');
+  }
+}
+
 async function deleteReport(id){
   const r = _reports.find(x => x.id === id);
-  if (!r || !canDeleteReport(r)) return;
+  if (!r || !isSiteAdmin()) return;
   const res = await confirmDialog({ title: 'Удалить отчёт?', text: `${r.leaderName} — ${r.factionName}, ${fmtISO(r.date)}. Отчёт скроется из списка, но его можно будет восстановить.`, okText: 'Удалить', reason: true });
   if (!res) return;
   try {

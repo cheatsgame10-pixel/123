@@ -215,7 +215,6 @@ async function approveUser(uid){
       direction: direction,
       curatedFactions: curatedFactions,
       permissions: permissions,
-      reportEditingEnabled: false,
       active: true,
       deleted: false,
       createdAt: FieldValue.serverTimestamp(),
@@ -435,10 +434,8 @@ function openUserModal(uid){
 
   const activeChecked = u.active !== false ? 'checked' : '';
   const deletedChecked = u.deleted === true ? 'checked' : '';
-  const reportEditChecked = u.reportEditingEnabled ? 'checked' : '';
   const disabledAttr = (self && !admin) ? 'disabled' : '';
 
-  // Генерация кастомных одиночных дропдаунов
   const singleDropdownHtml = (id, label, optionsArray, selectedValue, placeholder) => {
     const optionsHtml = optionsArray.map(opt => {
       const val = typeof opt === 'object' ? opt.value : opt;
@@ -496,15 +493,6 @@ function openUserModal(uid){
       </div>
     </div>
     ${admin ? `
-      <div class="field" id="uEditWrap">
-        <label class="toggle-label">
-          <span class="toggle-label-text">Лидер может редактировать комментарий своих отчётов</span>
-          <label class="toggle">
-            <input type="checkbox" id="uReportEdit" ${reportEditChecked} ${self ? '' : ''}>
-            <span class="slider"></span>
-          </label>
-        </label>
-      </div>
       <div class="field toggle-group">
         <label class="toggle-label">
           <span class="toggle-label-text">Аккаунт активен</span>
@@ -529,7 +517,6 @@ function openUserModal(uid){
       <button class="btn btn-primary" id="uSaveBtn" data-action="user-save" data-id="${escapeHtml(uid)}"><span class="spinner"></span><span>Сохранить</span></button>
     </div>`);
 
-  // Инициализация множественных дропдаунов
   document.querySelectorAll('#uCuratedWrap .dropdown-option').forEach(opt => {
     if (_modalSelections.curatedFactions.has(opt.dataset.value)) {
       opt.classList.add('selected');
@@ -545,7 +532,6 @@ function openUserModal(uid){
     }
   });
 
-  // Обработчики множественных дропдаунов
   document.querySelectorAll('#uCuratedWrap .custom-dropdown, #uPermsWrap .custom-dropdown').forEach(dropdown => {
     const display = dropdown.querySelector('.dropdown-display');
     const options = dropdown.querySelector('.dropdown-options');
@@ -581,7 +567,6 @@ function openUserModal(uid){
     });
   });
 
-  // Обработчики одиночных кастомных дропдаунов
   document.querySelectorAll('.modal-dropdown[id$="Dropdown"]').forEach(dropdown => {
     const idBase = dropdown.id.replace('Dropdown', '');
     const display = dropdown.querySelector('.dropdown-display');
@@ -693,7 +678,6 @@ async function saveUser(uid){
   }
 
   if (admin) {
-    patch.reportEditingEnabled = isLeaderRole ? document.getElementById('uReportEdit').checked : false;
     patch.active = document.getElementById('uActive').checked;
     patch.deleted = document.getElementById('uDeleted').checked;
   }
@@ -726,7 +710,6 @@ function pickUserFields(u){
     direction: u.direction || null,
     curatedFactions: Array.isArray(u.curatedFactions) ? u.curatedFactions : [],
     permissions: Array.isArray(u.permissions) ? u.permissions : [],
-    reportEditingEnabled: !!u.reportEditingEnabled,
     active: u.active !== false,
     deleted: u.deleted === true
   };
@@ -741,7 +724,6 @@ function describeUserChange(o, n){
   if (o.direction !== n.direction) parts.push('изменил направление главного следящего');
   if (JSON.stringify(o.curatedFactions) !== JSON.stringify(n.curatedFactions)) parts.push('изменил курируемые фракции');
   if (JSON.stringify(o.permissions) !== JSON.stringify(n.permissions)) parts.push('изменил права');
-  if (o.reportEditingEnabled !== n.reportEditingEnabled) parts.push(n.reportEditingEnabled ? 'разрешил редактирование отчётов' : 'запретил редактирование отчётов');
   if (o.active !== n.active) parts.push(n.active ? 'включил аккаунт' : 'отключил аккаунт');
   if (o.deleted !== n.deleted) parts.push(n.deleted ? 'пометил как удалённого' : 'восстановил из удалённых');
   if (!parts.length) return 'Сохранил пользователя без изменений';
@@ -757,7 +739,7 @@ async function revokeAdmin(uid){
     const batch = db.batch();
     addVersion(batch, 'user', uid, stripSystem(u));
     batch.update(db.collection('users').doc(uid), {
-      systemRole: 'leader', curatedFactions: [], permissions: [], faction: null, direction: null, reportEditingEnabled: false, serverLevel: 2, updatedAt: FieldValue.serverTimestamp()
+      systemRole: 'leader', curatedFactions: [], permissions: [], faction: null, direction: null, serverLevel: 2, updatedAt: FieldValue.serverTimestamp()
     });
     addAudit(batch, { action: 'Снял пользователя с административной должности', objectType: 'user', objectId: uid, oldValue: pickUserFields(u), newValue: { systemRole: 'leader', curatedFactions: [], permissions: [] }, additionalInfo: `${u.email}. Причина: ${res.reason}` });
     await batch.commit();

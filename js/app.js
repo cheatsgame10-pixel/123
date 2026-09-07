@@ -8,12 +8,12 @@ const TAB_LOADERS = {
   news: () => loadNews(),
   reports: () => { initReportForm(); if (canViewReports()) loadReports(); },
   duties: () => loadDuties(),
+  nickcheck: () => renderNickcheck(),
   pending: () => loadPendingUsers(),
   users: () => loadUsers(),
   factions: () => renderFactionsSection(),
   audit: () => loadAudit(false),
-  recovery: () => loadRecovery(),
-  nickcheck: () => renderNickcheck()
+  recovery: () => loadRecovery()
 };
 
 function switchTab(tab){
@@ -36,6 +36,7 @@ async function onSessionChanged(full){
   renderSidebar();
   renderTopbar();
   if (!_booted) return;
+  if (typeof initGlobalSupportUnreadListener === 'function') initGlobalSupportUnreadListener();
   await loadLeaderUsers();
   if (full){
     endVisit();
@@ -53,7 +54,7 @@ function handleAction(el){
   const map = {
     'login': () => login(),
     'logout': () => logout(),
-    'modal-close': () => closeModal(),
+    'modal-close': () => { if (typeof stopSupportListeners === 'function') stopSupportListeners(); closeModal(); },
     'retry-forum': () => { renderLeadersSkeleton(); fetchForum(true); },
     'retry-archive': () => loadArchive(),
     'retry-reports': () => loadReports(),
@@ -70,6 +71,9 @@ function handleAction(el){
     'report-edit-save': () => saveReportComment(id),
     'report-delete': () => deleteReport(id),
     'report-restore': () => restoreReport(id),
+    'report-curator-comment': () => openCuratorCommentModal(id),
+    'report-curator-comment-save': () => saveCuratorComment(id),
+    'report-mark-viewed': () => markReportViewed(id),
     'reports-more': () => loadReports(true),
     'user-edit': () => openUserModal(id),
     'user-save': () => saveUser(id),
@@ -116,7 +120,11 @@ function bindEvents(){
     if (tabEl){ switchTab(tabEl.dataset.tab); }
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape'){ closeConfirm(false); closeModal(); }
+    if (e.key === 'Escape') {
+      if (typeof stopSupportListeners === 'function') stopSupportListeners();
+      closeConfirm(false);
+      closeModal();
+    }
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-tab][role="button"]')){ e.preventDefault(); switchTab(e.target.dataset.tab); }
   });
 
@@ -185,6 +193,7 @@ async function boot(){
     });
   }
   _booted = true;
+  if (typeof initGlobalSupportUnreadListener === 'function') initGlobalSupportUnreadListener();
   await loadLeaderUsers();
   renderSidebar();
   renderTopbar();
