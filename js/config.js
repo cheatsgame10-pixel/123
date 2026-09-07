@@ -356,7 +356,9 @@ const TAB_TITLES = {
   factions: 'Фракции',
   audit: 'Журнал действий',
   recovery: 'Восстановление',
-  nickcheck: 'Проверка ников'
+  nickcheck: 'Проверка ников',
+  'cheat-report': 'Отчетность',
+  'cheat-history': 'История'
 };
 
 const state = {

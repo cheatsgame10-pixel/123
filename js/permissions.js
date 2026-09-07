@@ -157,6 +157,8 @@ function canAccessTab(tab){
     case 'duties':
       return canManageDuties();
     case 'nickcheck':
+    case 'cheat-report':
+    case 'cheat-history':
       return canManageDuties();
     case 'pending':
       return isSiteAdmin();

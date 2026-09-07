@@ -13,7 +13,9 @@ const TAB_LOADERS = {
   users: () => loadUsers(),
   factions: () => renderFactionsSection(),
   audit: () => loadAudit(false),
-  recovery: () => loadRecovery()
+  recovery: () => loadRecovery(),
+  'cheat-report': () => renderCheatReport(),
+  'cheat-history': () => renderCheatHistory()
 };
 
 function switchTab(tab){
@@ -63,6 +65,7 @@ function handleAction(el){
     'retry-duties': () => loadDuties(),
     'retry-audit': () => loadAudit(false),
     'retry-recovery': () => loadRecovery(),
+    'retry-cheat-history': () => loadCheatHistory(),
     'archive-edit': () => openArchiveModal(id),
     'archive-save': () => saveArchive(id),
     'archive-delete': () => deleteArchive(id),

@@ -10,6 +10,10 @@ const NAV_GROUPS = [
     { id: 'duties', label: 'Обязанности', icon: '<path d="M9 5h6l1 2h3v14H5V7h3z"/><path d="m9 13 2 2 4-4"/>' },
     { id: 'nickcheck', label: 'Проверка ников', icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' }
   ]},
+  { title: 'Чит-проверки', items: [
+    { id: 'cheat-report', label: 'Отчетность', icon: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>' },
+    { id: 'cheat-history', label: 'История', icon: '<path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>' }
+  ]},
   { title: 'Администрирование', items: [
     { id: 'pending', label: 'Доступ', icon: '<path d="M12 2v4M12 22v-4M4 12H2M6 12H4M20 12h-2M22 12h-2M19.07 4.93l-2.83 2.83M4.93 19.07l2.83-2.83M19.07 19.07l-2.83-2.83M4.93 4.93l2.83 2.83"/>' },
     { id: 'users', label: 'Пользователи', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
@@ -74,12 +78,41 @@ function renderTopbar(){
     return;
   }
   right.innerHTML = `
+    <div class="theme-dropdown">
+      <button class="btn btn-sm theme-btn" id="themeBtn" title="Тема">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <span>Тема</span>
+      </button>
+      <div class="theme-menu" id="themeMenu">
+        <div class="theme-option" data-theme="blue">
+          <div class="theme-option-color" style="background: #4f8cff"></div>
+          <span>Синий</span>
+        </div>
+        <div class="theme-option" data-theme="orange">
+          <div class="theme-option-color" style="background: #ff8c42"></div>
+          <span>Оранжевый</span>
+        </div>
+        <div class="theme-option" data-theme="red">
+          <div class="theme-option-color" style="background: #ff5468"></div>
+          <span>Красный</span>
+        </div>
+        <div class="theme-option" data-theme="green">
+          <div class="theme-option-color" style="background: #3ddc84"></div>
+          <span>Зелёный</span>
+        </div>
+        <div class="theme-option" data-theme="purple">
+          <div class="theme-option-color" style="background: #8b5cff"></div>
+          <span>Фиолетовый</span>
+        </div>
+      </div>
+    </div>
     <button class="btn btn-icon support-btn" id="supportTopBtn" title="Поддержка">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 8v.01M12 11v.01"/></svg>
       <span id="supportUnreadBadge" class="support-badge" hidden>${_unreadCount}</span>
     </button>
   `;
   document.getElementById('supportTopBtn')?.addEventListener('click', openSupportModal);
+  initThemeDropdown();
 }
 
 function setPageTitle(tab){
@@ -111,15 +144,7 @@ function updateDateTime(){
       <span class="topbar-time">${timeStr}</span>
       <span class="topbar-tz">${tz}</span>
     </div>
-    <div class="theme-picker">
-      <div class="theme-color" data-theme="blue" title="Синий"></div>
-      <div class="theme-color" data-theme="orange" title="Оранжевый"></div>
-      <div class="theme-color" data-theme="red" title="Красный"></div>
-      <div class="theme-color" data-theme="green" title="Зелёный"></div>
-      <div class="theme-color" data-theme="purple" title="Фиолетовый"></div>
-    </div>
   `;
-  initThemePicker();
 }
 
 let _dateTimeInterval = null;
@@ -242,23 +267,48 @@ const THEME_COLORS = {
   }
 };
 
-function initThemePicker(){
+function initThemeDropdown(){
   const savedTheme = localStorage.getItem('theme') || 'blue';
   applyTheme(savedTheme);
 
-  document.querySelectorAll('.theme-color').forEach(el => {
+  const themeBtn = document.getElementById('themeBtn');
+  const themeMenu = document.getElementById('themeMenu');
+
+  if (!themeBtn || !themeMenu) return;
+
+  themeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    themeMenu.classList.toggle('open');
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!themeMenu.contains(e.target) && !themeBtn.contains(e.target)) {
+      themeMenu.classList.remove('open');
+    }
+  });
+
+  document.querySelectorAll('.theme-option').forEach(el => {
     el.addEventListener('click', () => {
       const theme = el.dataset.theme;
       localStorage.setItem('theme', theme);
       applyTheme(theme);
+      themeMenu.classList.remove('open');
     });
   });
 }
 
+// Apply theme on page load
+(function initThemeOnLoad(){
+  if (typeof localStorage !== 'undefined') {
+    const savedTheme = localStorage.getItem('theme') || 'blue';
+    applyTheme(savedTheme);
+  }
+})();
+
 function applyTheme(theme){
   const colors = THEME_COLORS[theme] || THEME_COLORS.blue;
   const root = document.documentElement;
-  
+
   // Apply base colors
   root.style.setProperty('--theme-bg', colors.bg);
   root.style.setProperty('--theme-bg-2', colors.bg2);
@@ -269,7 +319,7 @@ function applyTheme(theme){
   root.style.setProperty('--theme-surface-elevated', colors.surfaceElevated);
   root.style.setProperty('--theme-border', colors.border);
   root.style.setProperty('--theme-border-strong', colors.borderStrong);
-  
+
   // Apply accent colors
   root.style.setProperty('--theme-primary', colors.primary);
   root.style.setProperty('--theme-primary-hover', colors.hover);
@@ -281,7 +331,7 @@ function applyTheme(theme){
   root.style.setProperty('--theme-bg-gradient-2', colors.bgGradient2);
   root.style.setProperty('--theme-bg-pattern', colors.bgPattern);
 
-  document.querySelectorAll('.theme-color').forEach(el => {
+  document.querySelectorAll('.theme-option').forEach(el => {
     el.classList.toggle('active', el.dataset.theme === theme);
   });
 }
