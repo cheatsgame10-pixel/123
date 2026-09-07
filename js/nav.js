@@ -105,10 +105,20 @@ function updateDateTime(){
   });
   const tz = 'МСК';
   el.innerHTML = `
-    <span class="topbar-date">${dateStr}</span>
-    <span class="topbar-time">${timeStr}</span>
-    <span class="topbar-tz">${tz}</span>
+    <div>
+      <span class="topbar-date">${dateStr}</span>
+      <span class="topbar-time">${timeStr}</span>
+      <span class="topbar-tz">${tz}</span>
+    </div>
+    <div class="theme-picker">
+      <div class="theme-color" data-theme="blue" title="Синий"></div>
+      <div class="theme-color" data-theme="orange" title="Оранжевый"></div>
+      <div class="theme-color" data-theme="red" title="Красный"></div>
+      <div class="theme-color" data-theme="green" title="Зелёный"></div>
+      <div class="theme-color" data-theme="purple" title="Фиолетовый"></div>
+    </div>
   `;
+  initThemePicker();
 }
 
 let _dateTimeInterval = null;
@@ -116,4 +126,39 @@ function startDateTimeUpdater(){
   updateDateTime();
   if (_dateTimeInterval) clearInterval(_dateTimeInterval);
   _dateTimeInterval = setInterval(updateDateTime, 60000);
+}
+
+const THEME_COLORS = {
+  blue: { primary: '#4f8cff', light: 'rgba(79, 140, 255, 0.15)', hover: '#3a7be6', line: 'rgba(79, 140, 255, 0.13)', lineStrong: 'rgba(79, 140, 255, 0.26)' },
+  orange: { primary: '#ff8c42', light: 'rgba(255, 140, 66, 0.15)', hover: '#e67a3a', line: 'rgba(255, 140, 66, 0.13)', lineStrong: 'rgba(255, 140, 66, 0.26)' },
+  red: { primary: '#ff5468', light: 'rgba(255, 84, 104, 0.15)', hover: '#e64a5c', line: 'rgba(255, 84, 104, 0.13)', lineStrong: 'rgba(255, 84, 104, 0.26)' },
+  green: { primary: '#3ddc84', light: 'rgba(61, 220, 132, 0.15)', hover: '#35c476', line: 'rgba(61, 220, 132, 0.13)', lineStrong: 'rgba(61, 220, 132, 0.26)' },
+  purple: { primary: '#8b5cff', light: 'rgba(139, 92, 255, 0.15)', hover: '#7d52e6', line: 'rgba(139, 92, 255, 0.13)', lineStrong: 'rgba(139, 92, 255, 0.26)' }
+};
+
+function initThemePicker(){
+  const savedTheme = localStorage.getItem('theme') || 'blue';
+  applyTheme(savedTheme);
+
+  document.querySelectorAll('.theme-color').forEach(el => {
+    el.addEventListener('click', () => {
+      const theme = el.dataset.theme;
+      localStorage.setItem('theme', theme);
+      applyTheme(theme);
+    });
+  });
+}
+
+function applyTheme(theme){
+  const colors = THEME_COLORS[theme] || THEME_COLORS.blue;
+  const root = document.documentElement;
+  root.style.setProperty('--theme-primary', colors.primary);
+  root.style.setProperty('--theme-primary-light', colors.light);
+  root.style.setProperty('--theme-primary-hover', colors.hover);
+  root.style.setProperty('--theme-line', colors.line);
+  root.style.setProperty('--theme-line-strong', colors.lineStrong);
+
+  document.querySelectorAll('.theme-color').forEach(el => {
+    el.classList.toggle('active', el.dataset.theme === theme);
+  });
 }

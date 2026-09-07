@@ -55,13 +55,34 @@ function parseGameNicknames(text) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    const normalized = normalizeNickname(trimmed);
+    let nickname = trimmed;
+
+    // Handle escaped underscores: \_ → _
+    nickname = nickname.replace(/\\_/g, '_');
+
+    // Parse extended format: 🔴 Alexa_Pensees [132789] (ч) (н)     22
+    // Extract the nickname between emoji/bracket and [ID]
+    const extendedMatch = nickname.match(/^[\p{Emoji}\p{So}]*\s*([^\s\[].*?)\s*\[\d+\]/u);
+    if (extendedMatch) {
+      nickname = extendedMatch[1].trim();
+    }
+
+    // Remove any remaining brackets with content like (ч) (н)
+    nickname = nickname.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+
+    // Remove trailing numbers
+    nickname = nickname.replace(/\s*\d+\s*$/, '').trim();
+
+    // If still empty after parsing, skip
+    if (!nickname) continue;
+
+    const normalized = normalizeNickname(nickname);
     if (!normalized) continue;
     if (seen.has(normalized)) continue;
     seen.add(normalized);
 
     nicknames.push({
-      original: trimmed,
+      original: nickname,
       normalized: normalized
     });
   }
