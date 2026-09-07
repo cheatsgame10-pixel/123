@@ -12,7 +12,8 @@ const TAB_LOADERS = {
   users: () => loadUsers(),
   factions: () => renderFactionsSection(),
   audit: () => loadAudit(false),
-  recovery: () => loadRecovery()
+  recovery: () => loadRecovery(),
+  nickcheck: () => renderNickcheck()
 };
 
 function switchTab(tab){

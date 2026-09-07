@@ -156,6 +156,8 @@ function canAccessTab(tab){
       return canViewReports();
     case 'duties':
       return canManageDuties();
+    case 'nickcheck':
+      return canManageDuties();
     case 'pending':
       return isSiteAdmin();
     case 'users':

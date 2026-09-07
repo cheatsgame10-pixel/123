@@ -356,7 +356,8 @@ const TAB_TITLES = {
   users: 'Пользователи',
   factions: 'Фракции',
   audit: 'Журнал действий',
-  recovery: 'Восстановление'
+  recovery: 'Восстановление',
+  nickcheck: 'Проверка ников'
 };
 
 const state = {
