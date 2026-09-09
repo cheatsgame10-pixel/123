@@ -1,11 +1,11 @@
 const firebaseConfig = {
-  apiKey: "AIzaSyBJwlx1s7H6nJU98YYshx-R3QyfvS4KIy4",
-  authDomain: "gta5rp-hub.firebaseapp.com",
-  projectId: "gta5rp-hub",
-  storageBucket: "gta5rp-hub.firebasestorage.app",
-  messagingSenderId: "166803632974",
-  appId: "1:166803632974:web:0cc3c0be44135b0636641f",
-  measurementId: "G-FZVFHS950N"
+ apiKey: "AIzaSyD2BMfoRTbTtH9FYjDytVi76DIzV214qh4",
+ authDomain: "sixseven-ee46d.firebaseapp.com",
+ projectId: "sixseven-ee46d",
+ storageBucket: "sixseven-ee46d.firebasestorage.app",
+ messagingSenderId: "379110992970",
+ appId: "1:379110992970:web:2d6d57d6d72ba62913cab3",
+ measurementId: "G-QT6ML9TWLW"
 };
 
 firebase.initializeApp(firebaseConfig);
