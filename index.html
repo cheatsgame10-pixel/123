@@ -5,21 +5,44 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#070a14">
 <title>GTA5RP HUB</title>
-<link rel="icon" type="image/x-icon" href="Icon.ico">
+<link rel="icon" type="image/png" href="/Icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/ru.js"></script>
 </head>
 <body>
 
 <div class="bg-fx" aria-hidden="true"></div>
 
-<div class="shell">
+<section class="guest-gate" id="guestGate" aria-label="Авторизация">
+  <div class="guest-orb guest-orb-a" aria-hidden="true"></div>
+  <div class="guest-orb guest-orb-b" aria-hidden="true"></div>
+  <div class="guest-login-card">
+    <div class="guest-kicker">GTA5RP HUB</div>
+    <h1>Добро пожаловать</h1>
+    <p>Войдите, чтобы продолжить</p>
+    <div class="guest-logo-frame">
+      <div class="guest-logo-glow" aria-hidden="true"></div>
+      <img src="Icon.png" class="guest-logo" alt="GTA5RP HUB">
+    </div>
+    <button class="btn btn-primary guest-login-btn" id="guestLoginBtn" data-action="login">
+      <span class="guest-login-shine" aria-hidden="true"></span>
+      <span class="spinner"></span>
+      <span class="guest-login-text">Войти через Discord</span>
+    </button>
+    <div class="guest-login-note" id="guestLoginNote">Доступ проверяется по ролям Discord-сервера проекта.</div>
+  </div>
+</section>
+
+<div class="shell" hidden>
   <aside class="sidebar" id="sidebar"></aside>
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
@@ -61,13 +84,7 @@
             <input type="search" id="archiveSearch" placeholder="Фракция, лидер или результат" autocomplete="off">
           </label>
           <div class="toolbar-right">
-            <label class="custom-checkbox" id="archiveDeletedWrap" hidden>
-              <input type="checkbox" id="archiveShowDeleted">
-              <span class="custom-checkbox-box">
-                <svg class="custom-checkbox-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </span>
-              <span>Показать удалённые</span>
-            </label>
+            <label class="check-inline archive-custom-check" id="archiveDeletedWrap" hidden><input type="checkbox" id="archiveShowDeleted"><span class="custom-checkbox-mark" aria-hidden="true"></span><span>Показать удалённые</span></label>
             <button class="btn btn-primary" id="archiveAddBtn" hidden>Добавить запись</button>
           </div>
         </div>
@@ -76,54 +93,14 @@
 
       <section class="panel" id="panel-news"><div id="newsRoot"></div></section>
 
-      <section class="panel" id="panel-reports">
-        <div class="locked" id="reportsLocked" hidden></div>
-        <div id="reportsBody">
-          <div class="report-layout">
-            <div class="card form-card">
-              <h3 id="reportFormTitle">Новый отчёт</h3>
-              <div class="field"><label for="reportFaction">Фракция</label><select id="reportFaction"></select></div>
-              <div class="field"><label for="reportName">Имя лидера</label><input type="text" id="reportName" maxlength="120" placeholder="Никнейм лидера"></div>
-              <div class="field"><label for="reportDate">Дата отчёта</label><input type="date" id="reportDate"></div>
-              <div class="field"><label for="reportProblems">Основные проблемы</label><textarea id="reportProblems" rows="3" maxlength="4000"></textarea></div>
-              <div class="field"><label for="reportImprovements">Улучшения</label><textarea id="reportImprovements" rows="3" maxlength="4000"></textarea></div>
-              <div class="field"><label for="reportComment">Комментарий</label><textarea id="reportComment" rows="2" maxlength="4000"></textarea></div>
-              <button class="btn btn-primary btn-block" id="saveReportBtn"><span class="spinner"></span><span>Сохранить отчёт</span></button>
-            </div>
-            <div class="card list-card">
-              <div class="list-head">
-                <h3>Отчёты</h3>
-                <span class="count-pill" id="reportsCount">0</span>
-                <label class="toggle-label" id="reportsDeletedWrap" hidden>
-                  <span class="toggle-label-text">Удалённые</span>
-                  <label class="toggle">
-                    <input type="checkbox" id="reportsShowDeleted">
-                    <span class="slider"></span>
-                  </label>
-                </label>
-              </div>
-              <div class="filter-row">
-                <div class="field"><label for="reportFilterFaction">Фракция</label><select id="reportFilterFaction"></select></div>
-                <div class="field"><label for="reportFilterStart">С</label><input type="date" id="reportFilterStart"></div>
-                <div class="field"><label for="reportFilterEnd">По</label><input type="date" id="reportFilterEnd"></div>
-                <button class="btn btn-ghost" id="reportFilterReset">Сброс</button>
-              </div>
-              <div id="reportsList"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section class="panel" id="panel-duties"><div id="dutiesRoot"></div></section>
+      <section class="panel" id="panel-faction-checks"><div id="factionChecksRoot"></div></section>
       <section class="panel" id="panel-support"><div id="supportRoot"></div></section>
       <section class="panel" id="panel-pending"><div id="pendingRoot"></div></section>
       <section class="panel" id="panel-users"><div id="usersRoot"></div></section>
       <section class="panel" id="panel-factions"><div id="factionsRoot"></div></section>
       <section class="panel" id="panel-audit"><div id="auditRoot"></div></section>
       <section class="panel" id="panel-recovery"><div id="recoveryRoot"></div></section>
-      <section class="panel" id="panel-nickcheck"><div id="nickcheckRoot"></div></section>
-      <section class="panel" id="panel-cheat-report"><div id="cheatReportRoot"></div></section>
-      <section class="panel" id="panel-cheat-history"><div id="cheatHistoryRoot"></div></section>
 
     </main>
   </div>
@@ -165,15 +142,13 @@
 <script src="js/leaders.js"></script>
 <script src="js/archive.js"></script>
 <script src="js/news.js"></script>
-<script src="js/reports.js"></script>
 <script src="js/duties.js"></script>
+<script src="js/factionChecks.js"></script>
 <script src="js/support.js"></script>
 <script src="js/users.js"></script>
 <script src="js/auditlog.js"></script>
 <script src="js/recovery.js"></script>
 <script src="js/dashboard.js"></script>
-<script src="js/nickcheck.js"></script>
-<script src="js/cheatchecks.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/app.js"></script>
 </body>

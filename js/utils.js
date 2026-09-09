@@ -21,7 +21,40 @@ function debounce(fn, ms){
   return (...args) => { clearTimeout(h); h = setTimeout(() => fn(...args), ms); };
 }
 
+async function firebaseApiRequest(path, body, { authRequired = true } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  const currentUser = auth.currentUser;
+  if (currentUser) {
+    headers.Authorization = `Bearer ${await currentUser.getIdToken()}`;
+  } else if (authRequired) {
+    const err = new Error('Authentication required');
+    err.code = 'unauthenticated';
+    throw err;
+  }
+
+  const response = await fetch(`${FIREBASE_API_BASE}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body || {})
+  });
+  let data = {};
+  try { data = await response.json(); } catch (_) {}
+  if (!response.ok) {
+    const err = new Error(data.error || `HTTP ${response.status}`);
+    err.code = data.code || (response.status === 403 ? 'permission-denied' : response.status === 401 ? 'unauthenticated' : 'network');
+    throw err;
+  }
+  return data;
+}
+
 function pad2(n){ return String(n).padStart(2, '0'); }
+
+function cleanDiscordGuildNickname(value){
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const cleaned = raw.replace(/^(?:\s*\[[^\]]*\]\s*)+/, '').trim();
+  return cleaned || raw;
+}
 
 function getMoscowNow() {
   const now = new Date();
@@ -142,9 +175,15 @@ function initialsOf(name){
   return parts.slice(0, 2).map(p => p[0].toUpperCase()).join('');
 }
 
+function safeExternalUrl(url){
+  const value = typeof url === 'string' ? url.trim() : '';
+  return /^https?:\/\//i.test(value) ? value : '';
+}
+
 function avatarHtml(url, name, cls){
   const c = 'avatar' + (cls ? ' ' + cls : '');
-  if (url) return `<img class="${c}" src="${escapeHtml(url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'${c}',textContent:'${escapeHtml(initialsOf(name))}'}))">`;
+  const safeUrl = safeExternalUrl(url);
+  if (safeUrl) return `<img class="${c}" src="${escapeHtml(safeUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'${c}',textContent:'${escapeHtml(initialsOf(name))}'}))">`;
   return `<div class="${c}">${escapeHtml(initialsOf(name))}</div>`;
 }
 
@@ -266,7 +305,7 @@ function errorState(text, retryAction){
 }
 
 function lockedState(text){
-  return `<div class="empty-state locked-state">${escapeHtml(text)}<div><button class="btn btn-primary" data-action="login">Войти через Google</button></div></div>`;
+  return `<div class="empty-state locked-state">${escapeHtml(text)}<div><button class="btn btn-primary" data-action="login">Войти через Discord</button></div></div>`;
 }
 
 function fetchWithTimeout(url, opts, ms){
@@ -293,3 +332,254 @@ function newVersionPayload(objectType, objectId, data, actor){
     createdByEmail: actor.email
   };
 }
+
+/* ---------- Shared UI helpers ---------- */
+function closeAllDropdowns(exceptOptions = null){
+  document.querySelectorAll('.dropdown-options.open').forEach(el => {
+    if (el !== exceptOptions) el.classList.remove('open');
+  });
+  document.querySelectorAll('.theme-palette.open').forEach(el => {
+    if (el !== exceptOptions) {
+      el.classList.remove('open');
+      el.closest('.theme-control')?.querySelector('[aria-expanded]')?.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+function toggleDropdownOptions(options){
+  if (!options) return;
+  const shouldOpen = !options.classList.contains('open');
+  closeAllDropdowns(options);
+  options.classList.toggle('open', shouldOpen);
+}
+
+function factionColorCode(ref){
+  const f = typeof ref === 'object' && ref ? ref : state.factionsById[String(ref || '')];
+  const values = [
+    f && f.forumKey,
+    f && f.name,
+    typeof ref === 'string' ? ref : ''
+  ].filter(Boolean).map(v => String(v).trim().toUpperCase());
+  const aliases = [
+    ['lspd', ['LSPD', 'LOS SANTOS POLICE']],
+    ['ems', ['EMS', 'EMERGENCY MEDICAL']],
+    ['gov', ['GOV', 'GOVERNMENT']],
+    ['fp', ['FP', 'SASPA', 'FEDERAL PRISON']],
+    ['wn', ['WN', 'WEAZEL NEWS']],
+    ['lssd', ['LSSD', 'LOS SANTOS SHERIFF']],
+    ['ng', ['NG', 'NATIONAL GUARD']],
+    ['fib', ['FIB', 'FEDERAL INVESTIGATION']],
+    ['am', ['AM', 'ARMENIAN']],
+    ['mm', ['MM', 'MEXICAN']],
+    ['rm', ['RM', 'RUSSIAN']],
+    ['lcn', ['LCN', 'LA COSA NOSTRA']],
+    ['yak', ['YAK', 'YAKUZA']],
+    ['esb', ['ESB', 'EAST SIDE BALLAS']],
+    ['mg13', ['MG-13', 'MG13', 'MARABUNTA']],
+    ['lsv', ['LSV', 'LOS SANTOS VAGOS']],
+    ['bsg', ['BSG', 'BLOODS']],
+    ['fam', ['FAM', 'FAMILIES']]
+  ];
+  for (const value of values){
+    for (const [code, keys] of aliases){
+      if (keys.some(k => value === k || value.includes(k))) return code;
+    }
+  }
+  return 'default';
+}
+
+function factionChipHtml(ref, label){
+  const text = label || (typeof ref === 'string' ? factionName(ref) : (ref && ref.name)) || '—';
+  const code = factionColorCode(ref);
+  return `<span class="faction-color-chip faction-${code}">${escapeHtml(text)}</span>`;
+}
+
+function factionDropdownLabelHtml(ref, label){
+  const text = label || (typeof ref === 'string' ? factionName(ref) : (ref && ref.name)) || '—';
+  const code = factionColorCode(ref);
+  return `<span class="faction-option-label"><span class="faction-color-dot faction-${code}"></span><span>${escapeHtml(text)}</span></span>`;
+}
+
+const THEME_STORAGE_PREFIX = 'gta5rp.theme';
+function themeStorageKey(){
+  return `${THEME_STORAGE_PREFIX}:${state.user?.uid || 'guest'}`;
+}
+
+function normalizeThemeHex(value){
+  const hex = String(value || '').trim();
+  return /^#[0-9a-f]{6}$/i.test(hex) ? hex.toLowerCase() : null;
+}
+
+function hexRgb(hex){
+  const clean = normalizeThemeHex(hex);
+  if (!clean) return {r:139,g:92,b:255};
+  const n = parseInt(clean.slice(1), 16);
+  return {r:(n >> 16) & 255, g:(n >> 8) & 255, b:n & 255};
+}
+
+function rgbHex({r,g,b}){
+  const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
+  return `#${[r,g,b].map(v => clamp(v).toString(16).padStart(2,'0')).join('')}`;
+}
+
+function mixThemeHex(a, b, amountA){
+  const ca = hexRgb(a), cb = hexRgb(b);
+  const w = Math.max(0, Math.min(1, Number(amountA)));
+  return rgbHex({r:ca.r*w+cb.r*(1-w), g:ca.g*w+cb.g*(1-w), b:ca.b*w+cb.b*(1-w)});
+}
+
+function themeLuminance(hex){
+  const {r,g,b} = hexRgb(hex);
+  const f = c => { const x=c/255; return x <= .04045 ? x/12.92 : Math.pow((x+.055)/1.055, 2.4); };
+  return .2126*f(r)+.7152*f(g)+.0722*f(b);
+}
+
+function setCustomThemeVars(root, accent){
+  const rgb = hexRgb(accent);
+  const vars = {
+    '--violet': accent,
+    '--blue': mixThemeHex(accent, '#ffffff', .76),
+    '--ink': mixThemeHex(accent, '#000000', .055),
+    '--ink-2': mixThemeHex(accent, '#000000', .095),
+    '--ink-3': mixThemeHex(accent, '#000000', .145),
+    '--panel': mixThemeHex(accent, '#000000', .115),
+    '--panel-hover': mixThemeHex(accent, '#000000', .20),
+    '--line': `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, .17)`,
+    '--line-strong': `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, .36)`
+  };
+  Object.entries(vars).forEach(([name,value]) => root.style.setProperty(name,value));
+}
+
+function clearInlineThemeVars(root){
+  ['--violet','--blue','--ink','--ink-2','--ink-3','--panel','--panel-hover','--line','--line-strong']
+    .forEach(name => root.style.removeProperty(name));
+}
+
+function applyTheme(theme, persist = false){
+  const customMatch = /^custom:(#[0-9a-f]{6})$/i.exec(String(theme || ''));
+  const root = document.documentElement;
+  let stored;
+  if (customMatch) {
+    const requested = normalizeThemeHex(customMatch[1]);
+    // Почти белый пользовательский цвет намеренно переводим в чёрную тему:
+    // белые акценты на светлых элементах теряют контраст.
+    if (themeLuminance(requested) >= .88) {
+      clearInlineThemeVars(root);
+      root.dataset.theme = 'black';
+    } else {
+      root.dataset.theme = 'custom';
+      setCustomThemeVars(root, requested);
+    }
+    stored = `custom:${requested}`;
+  } else {
+    const normalized = THEME_NAMES.includes(theme) ? theme : 'purple';
+    clearInlineThemeVars(root);
+    root.dataset.theme = normalized;
+    stored = normalized;
+  }
+  root.style.colorScheme = 'dark';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', getComputedStyle(root).getPropertyValue('--ink').trim() || '#05070d');
+  if (persist) {
+    try { localStorage.setItem(themeStorageKey(), stored); } catch (_) {}
+  }
+  return stored;
+}
+
+function initTheme(){
+  let theme = 'purple';
+  try { theme = localStorage.getItem(themeStorageKey()) || 'purple'; } catch (_) {}
+  applyTheme(theme, false);
+}
+
+
+/* ---------- Native select unification ----------
+   All native <select> controls use the same visual component as "Курируемые фракции".
+   The original select remains the source of truth for existing business logic. */
+function enhanceNativeSelect(select) {
+  if (!select || select.multiple || select.dataset.dropdownEnhanced === 'true') return;
+  select.dataset.dropdownEnhanced = 'true';
+  const wrap = document.createElement('div');
+  wrap.className = 'custom-dropdown native-dropdown';
+  wrap.dataset.nativeSelect = select.id || '';
+  const display = document.createElement('div');
+  display.className = 'dropdown-display';
+  display.tabIndex = 0;
+  const options = document.createElement('div');
+  options.className = 'dropdown-options';
+
+  const sync = () => {
+    const selected = select.options[select.selectedIndex];
+    display.innerHTML = selected
+      ? (selected.dataset.dropdownHtml || escapeHtml(selected.textContent || ''))
+      : 'Выберите значение';
+    display.classList.toggle('is-disabled', select.disabled);
+    wrap.classList.toggle('is-disabled', select.disabled);
+    options.querySelectorAll('.dropdown-option').forEach(option => {
+      option.classList.toggle('selected', option.dataset.value === select.value);
+    });
+  };
+
+  Array.from(select.children).forEach(node => {
+    if (node.tagName === 'OPTGROUP') {
+      const group = document.createElement('div');
+      group.className = 'dropdown-group-label';
+      group.textContent = node.label;
+      options.appendChild(group);
+      Array.from(node.options).forEach(option => addNativeOption(option));
+    } else if (node.tagName === 'OPTION') {
+      addNativeOption(node);
+    }
+  });
+
+  function addNativeOption(option) {
+    const item = document.createElement('div');
+    item.className = 'dropdown-option';
+    item.dataset.value = option.value;
+    item.textContent = option.textContent;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      if (select.disabled || option.disabled) return;
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', {bubbles: true}));
+      sync();
+      options.classList.remove('open');
+    });
+    options.appendChild(item);
+  }
+
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+  wrap.appendChild(display);
+  wrap.appendChild(options);
+  select.classList.add('native-select-source');
+  select.addEventListener('change', sync);
+  display.addEventListener('click', e => {
+    e.stopPropagation();
+    if (!select.disabled) toggleDropdownOptions(options);
+  });
+  display.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && !select.disabled) {
+      e.preventDefault();
+      toggleDropdownOptions(options);
+    }
+  });
+  sync();
+}
+
+function enhanceAllNativeSelects(root = document) {
+  root.querySelectorAll?.('select:not([multiple]):not([data-native-dropdown-ignore])').forEach(enhanceNativeSelect);
+}
+
+function initNativeSelectUnification() {
+  enhanceAllNativeSelects(document);
+  if (window.MutationObserver) {
+    const observer = new MutationObserver(mutations => {
+      mutations.forEach(m => m.addedNodes.forEach(node => {
+        if (node.nodeType === 1) enhanceAllNativeSelects(node);
+      }));
+    });
+    observer.observe(document.body, {childList: true, subtree: true});
+  }
+}
+document.addEventListener('DOMContentLoaded', initNativeSelectUnification);

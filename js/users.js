@@ -2,6 +2,24 @@ let _users = [];
 let _pendingUsers = [];
 let _presence = {};
 let _showDeleted = false;
+let _usersUnsub = null;
+let _pendingUsersUnsub = null;
+let _usersPresenceUnsub = null;
+let _usersSyncState = {
+  running: false,
+  status: 'idle',
+  jobId: '',
+  done: 0,
+  total: 0,
+  failed: 0,
+  changed: 0,
+  deactivated: 0,
+  roleWarnings: 0,
+  cancelRequested: false,
+  message: ''
+};
+let _usersSyncJobUnsub = null;
+const USERS_SYNC_CONCURRENCY = 5;
 let _modalSelections = {
   curatedFactions: new Set(),
   permissions: new Set(),
@@ -11,27 +29,29 @@ let _modalSelections = {
   faction: null
 };
 
-async function loadPendingUsers(){
+async function loadPendingUsers() {
   const root = document.getElementById('pendingRoot');
   if (!root) return;
-  if (!isSiteAdmin()){
+  if (!isSiteAdmin()) {
+    if (_pendingUsersUnsub) { _pendingUsersUnsub(); _pendingUsersUnsub = null; }
     root.innerHTML = lockedState('Раздел доступен только администратору сайта.');
     return;
   }
+  if (_pendingUsersUnsub) { _pendingUsersUnsub(); _pendingUsersUnsub = null; }
   root.innerHTML = skeletonRows(3);
-  try {
-    const snap = await db.collection('pendingUsers').get();
+  _pendingUsersUnsub = db.collection('pendingUsers').onSnapshot(snap => {
     _pendingUsers = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+    _pendingUsers.sort((a, b) => (toDate(b.attemptedAt)?.getTime() || 0) - (toDate(a.attemptedAt)?.getTime() || 0));
     renderPendingUsers();
-  } catch (err){
+  }, err => {
     console.error('Заявки', err);
     root.innerHTML = errorState('Не удалось загрузить заявки. ' + humanError(err), 'retry-pending');
-  }
+  });
 }
 
-function renderPendingUsers(){
+function renderPendingUsers() {
   const root = document.getElementById('pendingRoot');
-  if (!_pendingUsers.length){
+  if (!_pendingUsers.length) {
     root.innerHTML = emptyState('Нет ожидающих подтверждения пользователей.');
     return;
   }
@@ -39,21 +59,25 @@ function renderPendingUsers(){
     <div class="pending-list">
       ${_pendingUsers.map(p => {
         const activeFactions = state.factions.filter(f => f.active !== false).sort((a,b) => a.name.localeCompare(b.name, 'ru'));
-        const factionOptions = activeFactions.map(f => `<div class="dropdown-option" data-value="${escapeHtml(f.id)}" data-uid="${escapeHtml(p.uid)}">${escapeHtml(f.name)}</div>`).join('');
-        const factionSelectOptions = activeFactions.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`).join('');
+        const factionOptions = activeFactions.map(f => `<div class="dropdown-option faction-dropdown-option" data-value="${escapeHtml(f.id)}" data-uid="${escapeHtml(p.uid)}">${factionDropdownLabelHtml(f)}</div>`).join('');
         return `
         <div class="pending-item">
           <div class="pending-info">
-            <b>${escapeHtml(p.displayName || p.email)}</b> (${escapeHtml(p.email)})
+            <div class="pending-person">
+              ${avatarHtml(p.photoURL || p.avatarUrl || '', p.displayName || p.discordUsername || p.email, 'pending-avatar')}
+              <div class="pending-person-text">
+                <b>${escapeHtml(cleanDiscordGuildNickname(p.displayName || p.discordGuildNickname || p.discordUsername || p.email || 'Без имени'))}</b>
+                ${p.discordUsername && p.discordUsername !== cleanDiscordGuildNickname(p.displayName || p.discordGuildNickname || '') ? `<span class="pending-username">@${escapeHtml(p.discordUsername)}</span>` : ''}
+                <span class="pending-email mono">${escapeHtml(p.email || 'без почты')}</span>
+              </div>
+            </div>
             <span class="hint">попытка входа ${fmtDateTime(p.attemptedAt)}</span>
           </div>
           <div class="pending-actions">
             <select class="select-inline pending-role" data-uid="${escapeHtml(p.uid)}">
-              <option value="leader">Лидер</option>
               <option value="curator_assistant">Помощник куратора</option>
               <option value="curator">Куратор</option>
               <option value="chief_overseer">Главный следящий</option>
-              <option value="server_admin">Администратор сервера</option>
               <option value="site_admin">Администратор сайта</option>
             </select>
             <div class="pending-level-wrap" data-uid="${escapeHtml(p.uid)}">
@@ -63,12 +87,6 @@ function renderPendingUsers(){
                 <option value="4">Администратор 4 уровня</option>
                 <option value="5">Старший администратор</option>
                 <option value="6">Главный администратор</option>
-              </select>
-            </div>
-            <div class="pending-leader-faction-wrap" data-uid="${escapeHtml(p.uid)}" style="display:none;">
-              <select class="select-inline pending-leader-faction" data-uid="${escapeHtml(p.uid)}">
-                <option value="">Выберите фракцию</option>
-                ${factionSelectOptions}
               </select>
             </div>
             <div class="pending-direction-wrap" data-uid="${escapeHtml(p.uid)}" style="display:none;">
@@ -88,8 +106,8 @@ function renderPendingUsers(){
             <button class="btn btn-primary btn-sm approve-btn" data-uid="${escapeHtml(p.uid)}">Одобрить</button>
             <button class="btn btn-ghost btn-sm deny-btn" data-uid="${escapeHtml(p.uid)}">Отклонить</button>
           </div>
-        </div>
-      `}).join('')}
+        </div>`;
+      }).join('')}
     </div>
   `;
 
@@ -105,15 +123,11 @@ function renderPendingUsers(){
       const uid = this.dataset.uid;
       const role = this.value;
       const levelWrap = document.querySelector(`.pending-level-wrap[data-uid="${uid}"]`);
-      const leaderFactionWrap = document.querySelector(`.pending-leader-faction-wrap[data-uid="${uid}"]`);
       const directionWrap = document.querySelector(`.pending-direction-wrap[data-uid="${uid}"]`);
       const factionsWrap = document.querySelector(`.pending-factions-wrap[data-uid="${uid}"]`);
       if (levelWrap) {
         const isStaffRole = STAFF_ROLES.includes(role) || role === 'site_admin';
         levelWrap.style.display = isStaffRole ? 'inline-block' : 'none';
-      }
-      if (leaderFactionWrap) {
-        leaderFactionWrap.style.display = role === 'leader' ? 'inline-block' : 'none';
       }
       if (directionWrap) {
         directionWrap.style.display = role === 'chief_overseer' ? 'inline-block' : 'none';
@@ -135,7 +149,7 @@ function renderPendingUsers(){
 
     display.addEventListener('click', (e) => {
       e.stopPropagation();
-      options.classList.toggle('open');
+      toggleDropdownOptions(options);
     });
 
     options.querySelectorAll('.dropdown-option').forEach(opt => {
@@ -148,38 +162,33 @@ function renderPendingUsers(){
           selected.add(val);
           opt.classList.add('selected');
         }
-        display.textContent = selected.size ? Array.from(selected).map(v => {
-          const optEl = options.querySelector(`[data-value="${v}"]`);
-          return optEl ? optEl.textContent : v;
-        }).join(', ') : 'Выберите фракции';
+        display.innerHTML = selected.size ? Array.from(selected).map(v => factionChipHtml(v)).join(' ') : 'Выберите фракции';
         e.stopPropagation();
       });
     });
 
-    document.addEventListener('click', () => {
-      options.classList.remove('open');
-    });
   });
 }
 
-async function approveUser(uid){
+async function approveUser(uid) {
   const pending = _pendingUsers.find(p => p.uid === uid);
   if (!pending) return;
   const roleSelect = document.querySelector(`.pending-role[data-uid="${uid}"]`);
   const levelSelect = document.querySelector(`.pending-level[data-uid="${uid}"]`);
-  const leaderFactionSelect = document.querySelector(`.pending-leader-faction[data-uid="${uid}"]`);
   const directionSelect = document.querySelector(`.pending-direction[data-uid="${uid}"]`);
   const customDropdown = document.querySelector(`.custom-dropdown[data-uid="${uid}"]`);
   
-  const systemRole = roleSelect ? roleSelect.value : 'leader';
+  const systemRole = roleSelect ? roleSelect.value : 'curator_assistant';
   const serverLevel = (STAFF_ROLES.includes(systemRole) || systemRole === 'site_admin') ? parseInt(levelSelect.value) : 2;
 
   let permissions = [];
-  if (systemRole === 'curator_assistant' || systemRole === 'curator') {
-    permissions = ['viewReports', 'manageDuties'];
+  if (systemRole === 'curator_assistant') {
+    permissions = ['manageDuties', 'viewUsers'];
+  } else if (systemRole === 'curator') {
+    permissions = ['manageDuties', 'editDutyTasks', 'viewUsers'];
   }
   if (systemRole === 'chief_overseer') {
-    permissions = ['viewReports', 'manageReports', 'manageDuties', 'viewAudit'];
+    permissions = ['manageDuties', 'viewAudit'];
   }
 
   let curatedFactions = [];
@@ -190,9 +199,6 @@ async function approveUser(uid){
 
   let faction = null;
   let direction = null;
-  if (systemRole === 'leader' && leaderFactionSelect) {
-    faction = leaderFactionSelect.value || null;
-  }
   if (systemRole === 'chief_overseer' && directionSelect) {
     direction = directionSelect.value || null;
     if (direction) {
@@ -201,88 +207,88 @@ async function approveUser(uid){
     }
   }
 
+
   try {
-    const batch = db.batch();
-    const userRef = db.collection('users').doc(uid);
-    const data = {
-      uid: pending.uid,
-      email: pending.email,
-      displayName: pending.displayName || '',
-      avatarUrl: '',
-      serverLevel,
+    await firebaseApiRequest('/admin/approve-user', {
+      uid,
       systemRole,
-      faction: faction,
-      direction: direction,
-      curatedFactions: curatedFactions,
-      permissions: permissions,
-      active: true,
-      deleted: false,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp()
-    };
-    batch.set(userRef, data);
-    batch.delete(db.collection('pendingUsers').doc(uid));
-    await batch.commit();
-    toast(`Пользователь ${pending.displayName || pending.email} одобрен`);
-    loadPendingUsers();
-  } catch (err){
+      serverLevel,
+      faction,
+      direction,
+      curatedFactions
+    });
+    toast(`Пользователь ${pending.displayName || pending.email || uid} одобрен`);
+  } catch (err) {
     failToast(err, 'Не удалось одобрить пользователя');
   }
 }
 
-async function denyUser(uid){
+async function denyUser(uid) {
   const pending = _pendingUsers.find(p => p.uid === uid);
   if (!pending) return;
-  const ok = await confirmDialog({ title: 'Отклонить заявку?', text: `Пользователь ${pending.displayName || pending.email} не сможет войти.`, okText: 'Отклонить', danger: true });
+  const ok = await confirmDialog({ title: 'Отклонить заявку?', text: `Пользователь ${pending.displayName || pending.email || uid} не сможет войти.`, okText: 'Отклонить', danger: true });
   if (!ok) return;
   try {
-    await db.collection('pendingUsers').doc(uid).delete();
+    await firebaseApiRequest('/admin/deny-user', { uid });
     toast('Заявка отклонена');
-    loadPendingUsers();
-  } catch (err){
+  } catch (err) {
     failToast(err, 'Не удалось отклонить заявку');
   }
 }
 
-async function loadUsers(){
+async function loadUsers() {
   const root = document.getElementById('usersRoot');
-  if (!isSiteAdmin() && !isStaff()){ root.innerHTML = lockedState('Раздел доступен администрации.'); return; }
+  if (!root) return;
+  if (!canViewUsers()) {
+    if (_usersUnsub) { _usersUnsub(); _usersUnsub = null; }
+    root.innerHTML = lockedState('У вас нет права на просмотр списка пользователей.');
+    return;
+  }
+  if (_usersUnsub) { _usersUnsub(); _usersUnsub = null; }
   if (!document.getElementById('usersList')) root.innerHTML = skeletonRows(6);
   else document.getElementById('usersList').innerHTML = skeletonRows(6);
-  try {
-    let snap;
-    if (isSiteAdmin()){
-      snap = await db.collection('users').get();
-    } else if (isStaff() && myLevel() >= 4){
-      snap = await db.collection('users').where('systemRole', 'in', ['leader', 'curator_assistant', 'curator', 'chief_overseer', 'server_admin']).get();
-    } else if (curatedFactions().length){
-      snap = await db.collection('users').where('faction', 'in', curatedFactions().slice(0, 30)).get();
-    } else {
-      _users = [];
-      renderUsers();
-      return;
-    }
-    _users = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+
+  let query = db.collection('users');
+  _usersUnsub = query.onSnapshot(async snap => {
+    _users = snap.docs.map(d => {
+      const data = d.data();
+      return {
+        uid: d.id,
+        ...data,
+        displayName: cleanDiscordGuildNickname(data.displayName || data.discordGuildNickname || data.discordDisplayName || ''),
+        discordGuildNickname: cleanDiscordGuildNickname(data.discordGuildNickname || '')
+      };
+    });
     _users.sort((a, b) => roleWeight(b.systemRole) - roleWeight(a.systemRole) || String(a.displayName || a.email).localeCompare(String(b.displayName || b.email), 'ru'));
-    _presence = await loadPresenceMap(_users.map(u => u.uid));
+    ensureUsersPresenceRealtime();
     renderUsers();
-  } catch (err){
+  }, err => {
     console.error('Пользователи', err);
     root.innerHTML = errorState('Не удалось загрузить пользователей. ' + humanError(err), 'retry-users');
-  }
+  });
 }
 
-function roleWeight(r){
+function ensureUsersPresenceRealtime(){
+  if (_usersPresenceUnsub) return;
+  _usersPresenceUnsub = db.collection('presence').onSnapshot(snap => {
+    _presence = {};
+    snap.forEach(d => { _presence[d.id] = d.data(); });
+    if (state.tab === 'users') renderUsers();
+  }, err => console.warn('Presence realtime', err));
+}
+
+function roleWeight(r) {
   return ['leader', 'curator_assistant', 'curator', 'chief_overseer', 'server_admin', 'site_admin'].indexOf(r);
 }
 
-function renderUsers(){
+function renderUsers() {
   const root = document.getElementById('usersRoot');
-  if (!document.getElementById('usersList')){
+  if (!document.getElementById('usersList')) {
     root.innerHTML = `
       <div class="toolbar">
         <div class="stats-row" id="usersStats"></div>
         <div class="toolbar-right">
+          <span class="users-discord-note">Роли и аватар обновляются через Discord OAuth без выхода из аккаунта.</span>
           <label class="toggle-label" id="showDeletedWrap" ${isSiteAdmin() ? '' : 'hidden'}>
             <span class="toggle-label-text">Показать удалённых</span>
             <label class="toggle">
@@ -311,7 +317,10 @@ function renderUsers(){
     (u.email || '').toLowerCase().includes(q) ||
     (ROLES[u.systemRole] || '').toLowerCase().includes(q) ||
     (u.direction ? (OVERSEER_DIRECTION_LABELS[u.direction] || '').toLowerCase().includes(q) : false) ||
-    factionName(u.faction).toLowerCase().includes(q)) : _users;
+    factionName(u.faction).toLowerCase().includes(q) ||
+    (Array.isArray(u.curatedFactions) && u.curatedFactions.some(fid => factionName(fid).toLowerCase().includes(q))) ||
+    (Array.isArray(u.discordFactionCodes) && u.discordFactionCodes.some(code => String(code).toLowerCase().includes(q))) ||
+    (Array.isArray(u.discordRoleIds) && u.discordRoleIds.some(id => String(id).toLowerCase().includes(q)))) : _users;
 
   if (!_showDeleted) {
     rows = rows.filter(u => u.deleted !== true);
@@ -320,46 +329,47 @@ function renderUsers(){
   const admins = _users.filter(u => STAFF_ROLES.includes(u.systemRole) || u.systemRole === 'site_admin').length;
   const online = _users.filter(u => isOnline(_presence[u.uid])).length;
   document.getElementById('usersStats').innerHTML = `
-    <span class="stat-chip static"><b>${_users.length}</b>${isManager() ? 'пользователей' : 'лидеров'}</span>
+    <span class="stat-chip static"><b>${_users.length}</b>пользователей</span>
     ${isManager() ? `<span class="stat-chip static"><b>${admins}</b>администрации</span>` : ''}
     <span class="stat-chip static" data-tone="green"><b>${online}</b>в сети</span>`;
   document.getElementById('usersList').innerHTML = !rows.length ? emptyState(_users.length ? 'Ничего не найдено.' : (isManager() ? 'Пока никто не входил в систему.' : 'В ваших фракциях пока нет лидеров с аккаунтом.')) : `
-    <div class="card table-card">
+    <div class="card table-card table-scroll-shell">
       <table class="data-table users-table">
-        <thead><tr><th>Пользователь</th><th>Роль</th><th>Уровень</th><th>Фракции</th><th>Статус</th><th>В системе с</th><th></th></tr></thead>
+        <thead><tr><th>Пользователь</th><th>Роль</th><th>Уровень</th><th>Фракции / направление</th><th>Статус</th><th>В системе с</th><th></th></tr></thead>
         <tbody>${rows.map(u => `
           <tr class="${u.active === false || u.deleted === true ? 'row-muted' : ''}">
             <td><div class="user-cell">${avatarHtml(u.avatarUrl, u.displayName || u.email, 'avatar-sm')}<div><div class="uc-name">${escapeHtml(u.displayName || '—')}</div><div class="uc-email mono">${escapeHtml(u.email)}</div></div></td>
-            <td>${roleBadge(u)}${u.systemRole === 'chief_overseer' && u.direction ? `<div class="hint">${escapeHtml(OVERSEER_DIRECTION_LABELS[u.direction] || u.direction)}</div>` : ''}</td>
+            <td><div class="role-direction-group">${roleBadge(u)}${u.systemRole === 'chief_overseer' && u.direction ? `<span class="direction-badge direction-${escapeHtml(u.direction)}">${escapeHtml(OVERSEER_DIRECTION_LABELS[u.direction] || u.direction)}</span>` : ''}</div></td>
             <td>${u.systemRole === 'leader' ? '<span class="hint">—</span>' : levelBadge(u.serverLevel)}</td>
             <td>${userFactionsText(u)}</td>
-            <td>${u.deleted === true ? '<span class="badge badge-grey">Удалён</span>' : (u.active === false ? '<span class="badge badge-grey">Отключён</span>' : presenceBadge(_presence[u.uid]))}</td>
+            <td>${u.deleted === true ? '<span class="badge badge-grey">Удалён</span>' : (u.active === false ? `<span class="badge badge-grey">${u.discordAccessDisabled ? 'Нет на Discord-серверах' : 'Отключён'}</span>` : presenceBadge(_presence[u.uid]))}</td>
             <td class="mono">${fmtDate(u.createdAt)}</td>
             <td class="td-actions">${userActionsHtml(u)}</td>
           </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
+  renderUsersSyncStatus();
 }
 
-function userFactionsText(u){
-  if (u.systemRole === 'leader') return escapeHtml(factionName(u.faction));
+function userFactionsText(u) {
+  const ids = [];
+  if (u.faction && state.factionsById[u.faction]?.active !== false) ids.push(u.faction);
+
   if (u.systemRole === 'chief_overseer' && u.direction) {
     const cats = DIRECTION_CATEGORIES[u.direction] || [];
-    const names = state.factions.filter(f => cats.includes(f.category) && f.active !== false).map(f => f.name);
-    return escapeHtml(names.join(', ') || '—');
+    state.factions.filter(f => cats.includes(f.category) && f.active !== false).forEach(f => ids.push(f.id));
   }
-  if (Array.isArray(u.curatedFactions) && u.curatedFactions.length) {
-    const names = u.curatedFactions.map(id => {
-      const f = state.factionsById[id];
-      return f && f.active !== false ? f.name : null;
-    }).filter(Boolean);
-    return names.length ? escapeHtml(names.join(', ')) : '<span class="hint">—</span>';
+  if (Array.isArray(u.curatedFactions)) {
+    u.curatedFactions.forEach(id => {
+      if (state.factionsById[id]?.active !== false) ids.push(id);
+    });
   }
-  return '<span class="hint">—</span>';
+  const unique = [...new Set(ids)];
+  return unique.length ? `<div class="faction-chip-list">${unique.map(id => factionChipHtml(id)).join('')}</div>` : '<span class="hint">—</span>';
 }
 
-function userActionsHtml(u){
+function userActionsHtml(u) {
   if (isSiteAdmin()) {
     const buttons = `<button class="btn btn-ghost btn-sm" data-action="user-edit" data-id="${escapeHtml(u.uid)}">Изменить</button>`;
     if (u.uid !== state.user.uid) {
@@ -373,11 +383,10 @@ function userActionsHtml(u){
   }
   const out = [];
   if (canManageCurationOf(u) || canChangeLevelOf(u)) out.push(`<button class="btn btn-ghost btn-sm" data-action="user-edit" data-id="${escapeHtml(u.uid)}">Назначение</button>`);
-  if (isStaff() && can('editLeaderNickname') && u.systemRole === 'leader' && curates(u.faction)) out.push(`<button class="btn btn-ghost btn-sm" data-action="user-rename" data-id="${escapeHtml(u.uid)}">Изменить ник</button>`);
   return out.join('');
 }
 
-function openUserModal(uid){
+function openUserModal(uid) {
   const u = _users.find(x => x.uid === uid);
   if (!u) return;
   const self = uid === state.user.uid;
@@ -389,13 +398,13 @@ function openUserModal(uid){
   _modalSelections.curatedFactions = new Set(Array.isArray(u.curatedFactions) ? u.curatedFactions : []);
   _modalSelections.permissions = new Set(Array.isArray(u.permissions) ? u.permissions : []);
   _modalSelections.systemRole = u.systemRole;
-  _modalSelections.serverLevel = u.serverLevel;
+  _modalSelections.serverLevel = Number(u.serverLevel) || 2;
   _modalSelections.direction = u.direction || '';
   _modalSelections.faction = u.faction || '';
 
   const curated = Array.isArray(u.curatedFactions) ? u.curatedFactions : [];
   const perms = Array.isArray(u.permissions) ? u.permissions : [];
-  const roleOptions = admin ? Object.keys(ROLES) : CURATION_ROLES;
+  const roleOptions = admin ? ASSIGNABLE_SYSTEM_ROLES : CURATION_ROLES;
   const permOptions = admin ? Object.keys(PERMISSIONS) : CURATION_PERMISSIONS;
   const factionsForCuration = admin ? state.factions.filter(f => f.active !== false).map(f => f.id) : assignableFactionIds();
   const levelOptions = admin ? [2,3,4,5,6] : (levelOk ? [2,3,4,5,6] : [Number(u.serverLevel) || 2]);
@@ -414,7 +423,7 @@ function openUserModal(uid){
     if (grouped[cat] && grouped[cat].length) {
       grouped[cat].forEach(f => {
         const isSelected = curated.includes(f.id);
-        curatedOptions += `<div class="dropdown-option${isSelected ? ' selected' : ''}" data-value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</div>`;
+        curatedOptions += `<div class="dropdown-option faction-dropdown-option${isSelected ? ' selected' : ''}" data-value="${escapeHtml(f.id)}">${factionDropdownLabelHtml(f)}</div>`;
       });
     }
   });
@@ -466,7 +475,7 @@ function openUserModal(uid){
     <h2>${escapeHtml(u.displayName || u.email)}</h2>
     <p class="sub mono">${escapeHtml(u.email)}${self ? ' · это ваш аккаунт' : ''}</p>
     <div class="grid-2">
-      <div class="field"><label for="uName">Никнейм</label><input type="text" id="uName" maxlength="80" value="${escapeHtml(u.displayName || '')}" ${admin ? '' : 'disabled'}></div>
+      <div class="field"><label for="uName">Никнейм из Discord</label><input type="text" id="uName" maxlength="80" value="${escapeHtml(u.displayName || '')}" disabled></div>
       ${singleDropdownHtml('uLevel', 'Серверный уровень', levelOptions.map(n => ({ value: n, label: LEVELS[n] })), _modalSelections.serverLevel, 'Выберите уровень')}
     </div>
     <div class="grid-2">
@@ -477,7 +486,7 @@ function openUserModal(uid){
     <div class="field" id="uCuratedWrap">
       <label>Курируемые фракции</label>
       <div class="custom-dropdown modal-dropdown">
-        <div class="dropdown-display">${curated.length ? curated.map(id => escapeHtml(factionName(id))).join(', ') : 'Выберите фракции'}</div>
+        <div class="dropdown-display faction-dropdown-display">${curated.length ? curated.map(id => factionChipHtml(id)).join(' ') : 'Выберите фракции'}</div>
         <div class="dropdown-options">
           ${curatedOptions}
         </div>
@@ -511,7 +520,6 @@ function openUserModal(uid){
       </div>
     ` : ''}
     <div class="modal-actions">
-      ${admin && !self && (STAFF_ROLES.includes(u.systemRole) || u.systemRole === 'site_admin') ? `<button class="btn btn-ghost danger-text" data-action="user-revoke" data-id="${escapeHtml(uid)}">Снять с администрации</button>` : ''}
       <span class="spacer"></span>
       <button class="btn btn-ghost" data-action="modal-close">Отмена</button>
       <button class="btn btn-primary" id="uSaveBtn" data-action="user-save" data-id="${escapeHtml(uid)}"><span class="spinner"></span><span>Сохранить</span></button>
@@ -540,6 +548,7 @@ function openUserModal(uid){
     options.querySelectorAll('.dropdown-option').forEach(opt => {
       opt.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (opt.classList.contains('disabled') || opt.getAttribute('aria-disabled') === 'true') return;
         const val = opt.dataset.value;
         if (!val) return;
         if (selectedSet.has(val)) {
@@ -549,22 +558,25 @@ function openUserModal(uid){
           selectedSet.add(val);
           opt.classList.add('selected');
         }
-        const names = Array.from(selectedSet).map(v => {
-          const optEl = options.querySelector(`[data-value="${v}"]`);
-          return optEl ? optEl.textContent : v;
-        });
-        display.textContent = names.length ? names.join(', ') : (dropdown.closest('#uPermsWrap') ? 'Выберите права' : 'Выберите фракции');
+        const isPermissions = Boolean(dropdown.closest('#uPermsWrap'));
+        const values = Array.from(selectedSet);
+        if (isPermissions) {
+          const names = values.map(v => {
+            const optEl = options.querySelector(`[data-value="${v}"]`);
+            return optEl ? optEl.textContent : v;
+          });
+          display.textContent = names.length ? names.join(', ') : 'Выберите права';
+        } else {
+          display.innerHTML = values.length ? values.map(v => factionChipHtml(v)).join(' ') : 'Выберите фракции';
+        }
       });
     });
 
     display.addEventListener('click', (e) => {
       e.stopPropagation();
-      options.classList.toggle('open');
+      toggleDropdownOptions(options);
     });
 
-    document.addEventListener('click', () => {
-      options.classList.remove('open');
-    });
   });
 
   document.querySelectorAll('.modal-dropdown[id$="Dropdown"]').forEach(dropdown => {
@@ -587,7 +599,7 @@ function openUserModal(uid){
         const val = opt.dataset.value;
         options.querySelectorAll('.dropdown-option').forEach(o => o.classList.remove('selected'));
         opt.classList.add('selected');
-        _modalSelections[selectionKey] = val;
+        _modalSelections[selectionKey] = selectionKey === 'serverLevel' ? Number(val) : val;
         display.textContent = opt.textContent;
         options.classList.remove('open');
         if (selectionKey === 'systemRole') {
@@ -598,12 +610,9 @@ function openUserModal(uid){
 
     display.addEventListener('click', (e) => {
       e.stopPropagation();
-      options.classList.toggle('open');
+      toggleDropdownOptions(options);
     });
 
-    document.addEventListener('click', () => {
-      options.classList.remove('open');
-    });
   });
 
   const syncModalFields = () => {
@@ -616,70 +625,94 @@ function openUserModal(uid){
     document.getElementById('uCuratedWrap').hidden = !(STAFF_ROLES.includes(r) || isOverseerRole);
     document.getElementById('uPermsWrap').hidden = !(STAFF_ROLES.includes(r) || isOverseerRole);
     document.getElementById('uLevelWrap').hidden = !isStaffRole;
+
+    // Помощнику куратора editDutyTasks запрещён на всех уровнях: UI, saveUser и Firestore Rules.
+    const editTasksOption = document.querySelector('#uPermsWrap .dropdown-option[data-value="editDutyTasks"]');
+    if (r === 'curator_assistant') {
+      _modalSelections.permissions.delete('editDutyTasks');
+      if (editTasksOption) {
+        editTasksOption.classList.remove('selected');
+        editTasksOption.classList.add('disabled');
+        editTasksOption.setAttribute('aria-disabled', 'true');
+      }
+    } else if (editTasksOption) {
+      editTasksOption.classList.remove('disabled');
+      editTasksOption.setAttribute('aria-disabled', 'false');
+    }
+
+    const permDisplay = document.querySelector('#uPermsWrap .dropdown-display');
+    if (permDisplay) {
+      const names = Array.from(_modalSelections.permissions).map(value => PERMISSIONS[value] || value);
+      permDisplay.textContent = names.length ? names.join(', ') : 'Выберите права';
+    }
   };
 
   syncModalFields();
 }
 
-async function saveUser(uid){
+async function saveUser(uid) {
   const u = _users.find(x => x.uid === uid);
   if (!u) return;
   const btn = document.getElementById('uSaveBtn');
   const self = uid === state.user.uid;
   const admin = isSiteAdmin();
   const patch = { updatedAt: FieldValue.serverTimestamp() };
-  if (admin){
-    const displayName = document.getElementById('uName').value.trim();
-    if (!displayName){ toast('Введите никнейм', 'error'); return; }
-    patch.displayName = displayName;
-  }
 
   const systemRole = _modalSelections.systemRole;
   const isLeaderRole = systemRole === 'leader';
   const isStaffRole = STAFF_ROLES.includes(systemRole) || systemRole === 'site_admin';
   const isOverseerRole = systemRole === 'chief_overseer';
 
-  if (isStaffRole) {
-    patch.serverLevel = _modalSelections.serverLevel;
-  } else {
-    patch.serverLevel = 2;
-  }
+  patch.serverLevel = Number(_modalSelections.serverLevel) || Number(u.serverLevel) || 2;
 
   patch.systemRole = systemRole;
 
   if (isLeaderRole) {
     const faction = _modalSelections.faction;
-    if (!faction){ toast('Выберите фракцию для лидера', 'error'); return; }
+    if (!faction) { toast('Выберите фракцию для лидера', 'error'); return; }
     patch.faction = faction;
     patch.direction = null;
   } else {
-    patch.faction = null;
+    // faction — отдельное от systemRole поле. Не стираем Discord-фракцию при
+    // назначении помощником/куратором/администратором.
+    patch.faction = typeof u.faction === 'string' && u.faction ? u.faction : null;
   }
 
   if (isOverseerRole) {
     const direction = _modalSelections.direction;
-    if (!direction){ toast('Выберите направление для главного следящего', 'error'); return; }
+    if (!direction) { toast('Выберите направление для главного следящего', 'error'); return; }
     patch.direction = direction;
     const cats = DIRECTION_CATEGORIES[direction] || [];
     patch.curatedFactions = state.factions.filter(f => cats.includes(f.category) && f.active !== false).map(f => f.id);
-    patch.permissions = ['viewReports', 'manageReports', 'manageDuties', 'viewAudit'];
+    patch.permissions = ['manageDuties', 'viewAudit'];
+    if (_modalSelections.permissions.has('viewUsers')) patch.permissions.push('viewUsers');
+  } else if (systemRole === 'site_admin') {
+    patch.direction = null;
+    patch.curatedFactions = [];
+    patch.permissions = Object.keys(PERMISSIONS);
   } else {
     patch.direction = null;
     patch.curatedFactions = Array.from(_modalSelections.curatedFactions);
     let perms = Array.from(_modalSelections.permissions);
 
-    if ((systemRole === 'curator_assistant' || systemRole === 'curator') && !perms.includes('viewReports')) {
-      perms.push('viewReports');
+    if (systemRole === 'curator_assistant') {
+      perms = perms.filter(p => p !== 'editDutyTasks');
+      if (!perms.includes('manageDuties')) perms.push('manageDuties');
+      if (!perms.includes('viewUsers')) perms.push('viewUsers');
     }
-    if ((systemRole === 'curator_assistant' || systemRole === 'curator') && !perms.includes('manageDuties')) {
-      perms.push('manageDuties');
+    if (systemRole === 'curator') {
+      if (!perms.includes('manageDuties')) perms.push('manageDuties');
+      if (!perms.includes('editDutyTasks')) perms.push('editDutyTasks');
+      if (!perms.includes('viewUsers')) perms.push('viewUsers');
     }
     patch.permissions = perms;
   }
 
   if (admin) {
     patch.active = document.getElementById('uActive').checked;
+    patch.disabledByAdmin = !patch.active;
     patch.deleted = document.getElementById('uDeleted').checked;
+    if (patch.deleted) { patch.active = false; patch.disabledByAdmin = true; }
   }
 
   setLoading(btn, true);
@@ -693,15 +726,14 @@ async function saveUser(uid){
     await batch.commit();
     closeModal();
     toast('Пользователь обновлён');
-    loadUsers();
-  } catch (err){
+  } catch (err) {
     failToast(err, 'Не удалось сохранить пользователя');
   } finally {
     setLoading(btn, false);
   }
 }
 
-function pickUserFields(u){
+function pickUserFields(u) {
   return {
     displayName: u.displayName || '',
     systemRole: u.systemRole,
@@ -715,12 +747,12 @@ function pickUserFields(u){
   };
 }
 
-function describeUserChange(o, n){
+function describeUserChange(o, n) {
   const parts = [];
   if (o.displayName !== n.displayName) parts.push('изменил никнейм');
   if (o.systemRole !== n.systemRole) parts.push(`изменил роль на «${ROLES[n.systemRole]}»`);
   if (o.serverLevel !== n.serverLevel) parts.push(`изменил уровень на «${LEVELS[n.serverLevel] || n.serverLevel}»`);
-  if (o.faction !== n.faction) parts.push('изменил фракцию лидера');
+  if (o.faction !== n.faction) parts.push('изменил фракцию');
   if (o.direction !== n.direction) parts.push('изменил направление главного следящего');
   if (JSON.stringify(o.curatedFactions) !== JSON.stringify(n.curatedFactions)) parts.push('изменил курируемые фракции');
   if (JSON.stringify(o.permissions) !== JSON.stringify(n.permissions)) parts.push('изменил права');
@@ -730,64 +762,12 @@ function describeUserChange(o, n){
   return parts.join(', ').replace(/^./, c => c.toUpperCase());
 }
 
-async function revokeAdmin(uid){
+async function revokeAdmin(uid) {
   const u = _users.find(x => x.uid === uid);
   if (!u) return;
-  const res = await confirmDialog({ title: 'Снять с администрации?', text: `${u.displayName || u.email} станет обычным пользователем. Права и курируемые фракции будут отозваны, вся история действий сохранится.`, okText: 'Снять', reason: true });
-  if (!res) return;
-  try {
-    const batch = db.batch();
-    addVersion(batch, 'user', uid, stripSystem(u));
-    batch.update(db.collection('users').doc(uid), {
-      systemRole: 'leader', curatedFactions: [], permissions: [], faction: null, direction: null, serverLevel: 2, updatedAt: FieldValue.serverTimestamp()
-    });
-    addAudit(batch, { action: 'Снял пользователя с административной должности', objectType: 'user', objectId: uid, oldValue: pickUserFields(u), newValue: { systemRole: 'leader', curatedFactions: [], permissions: [] }, additionalInfo: `${u.email}. Причина: ${res.reason}` });
-    await batch.commit();
-    closeModal();
-    toast('Пользователь снят с администрации');
-    loadUsers();
-  } catch (err){
-    failToast(err, 'Не удалось снять пользователя');
-  }
+  toast('Выберите новую системную роль в карточке пользователя и нажмите «Сохранить».', 'error');
 }
-
-function openRenameModal(uid){
-  const u = _users.find(x => x.uid === uid);
-  if (!u) return;
-  openModal(`
-    <h2>Изменить никнейм лидера</h2>
-    <p class="sub">${escapeHtml(factionName(u.faction))} · ${escapeHtml(u.email)}</p>
-    <div class="field"><label for="rnName">Новый никнейм</label><input type="text" id="rnName" maxlength="80" value="${escapeHtml(u.displayName || '')}"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" data-action="modal-close">Отмена</button>
-      <button class="btn btn-primary" id="rnSaveBtn" data-action="user-rename-save" data-id="${escapeHtml(uid)}"><span class="spinner"></span><span>Сохранить</span></button>
-    </div>`);
-}
-
-async function saveRename(uid){
-  const u = _users.find(x => x.uid === uid);
-  if (!u) return;
-  const btn = document.getElementById('rnSaveBtn');
-  const displayName = document.getElementById('rnName').value.trim();
-  if (!displayName){ toast('Введите никнейм', 'error'); return; }
-  setLoading(btn, true);
-  try {
-    const batch = db.batch();
-    addVersion(batch, 'user', uid, stripSystem(u));
-    batch.update(db.collection('users').doc(uid), { displayName, updatedAt: FieldValue.serverTimestamp() });
-    addAudit(batch, { action: `Изменил никнейм лидера ${factionName(u.faction)}`, objectType: 'user', objectId: uid, oldValue: { displayName: u.displayName || '' }, newValue: { displayName }, faction: u.faction });
-    await batch.commit();
-    closeModal();
-    toast('Никнейм обновлён');
-    loadUsers();
-  } catch (err){
-    failToast(err, 'Не удалось изменить никнейм');
-  } finally {
-    setLoading(btn, false);
-  }
-}
-
-async function deleteUser(uid){
+async function deleteUser(uid) {
   const u = _users.find(x => x.uid === uid);
   if (!u) return;
   if (u.uid === state.user.uid) {
@@ -801,6 +781,7 @@ async function deleteUser(uid){
     addVersion(batch, 'user', uid, stripSystem(u));
     batch.update(db.collection('users').doc(uid), {
       active: false,
+      disabledByAdmin: true,
       deleted: true,
       updatedAt: FieldValue.serverTimestamp(),
       deletedAt: FieldValue.serverTimestamp(),
@@ -810,13 +791,12 @@ async function deleteUser(uid){
     addAudit(batch, { action: 'Удалил пользователя', objectType: 'user', objectId: uid, oldValue: { displayName: u.displayName, email: u.email }, additionalInfo: res.reason || '' });
     await batch.commit();
     toast('Пользователь удалён');
-    loadUsers();
-  } catch (err){
+  } catch (err) {
     failToast(err, 'Не удалось удалить пользователя');
   }
 }
 
-async function restoreUser(uid){
+async function restoreUser(uid) {
   const u = _users.find(x => x.uid === uid);
   if (!u) return;
   const ok = await confirmDialog({ title: 'Восстановить пользователя?', text: `Пользователь ${u.displayName || u.email} снова появится в списке и сможет войти.`, okText: 'Восстановить', danger: false });
@@ -826,6 +806,8 @@ async function restoreUser(uid){
     addVersion(batch, 'user', uid, stripSystem(u));
     batch.update(db.collection('users').doc(uid), {
       active: true,
+      disabledByAdmin: false,
+      discordAccessDisabled: false,
       deleted: false,
       updatedAt: FieldValue.serverTimestamp(),
       restoredAt: FieldValue.serverTimestamp(),
@@ -834,8 +816,7 @@ async function restoreUser(uid){
     addAudit(batch, { action: 'Восстановил удалённого пользователя', objectType: 'user', objectId: uid, oldValue: { displayName: u.displayName, email: u.email } });
     await batch.commit();
     toast('Пользователь восстановлен');
-    loadUsers();
-  } catch (err){
+  } catch (err) {
     failToast(err, 'Не удалось восстановить пользователя');
   }
 }

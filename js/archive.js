@@ -1,20 +1,29 @@
 let _archive = [];
+let _archiveUnsub = null;
 
 async function loadArchive(){
   const root = document.getElementById('archiveRoot');
+  if (_archiveUnsub) { _archiveUnsub(); _archiveUnsub = null; }
   root.innerHTML = skeletonRows(5);
-  try {
-    let q = db.collection('leaderHistory');
-    const showDeleted = isSiteAdmin() && state.archiveShowDeleted;
-    if (!showDeleted) q = q.where('deleted', '==', false);
-    const snap = await q.get();
+  let q = db.collection('leaderHistory');
+  const showDeleted = isSiteAdmin() && state.archiveShowDeleted;
+  if (!showDeleted) q = q.where('deleted', '==', false);
+  _archiveUnsub = q.onSnapshot(snap => {
     _archive = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     _archive.sort((a, b) => String(b.endDate || '').localeCompare(String(a.endDate || '')) || (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
     renderArchive();
-  } catch (err){
+  }, err => {
     console.error('Архив', err);
     root.innerHTML = errorState('Не удалось загрузить архив. ' + humanError(err), 'retry-archive');
-  }
+  });
+}
+
+function archiveDurationDays(startDate, endDate){
+  if (!startDate || !endDate) return null;
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+  return Math.floor((end - start) / 86400000) + 1;
 }
 
 function renderArchive(){
@@ -30,56 +39,92 @@ function renderArchive(){
     root.innerHTML = emptyState(_archive.length ? 'Ничего не найдено.' : 'Архив пока пуст.');
     return;
   }
-  root.innerHTML = `<div class="archive-list">${rows.map(r => `
-    <div class="archive-item${r.deleted ? ' is-deleted' : ''}">
-      <div class="ai-head">
-        <div>
-          <div class="ai-faction">${escapeHtml(r.factionName || factionName(r.factionId))}</div>
-          <div class="ai-leader">${escapeHtml(r.leader)}</div>
+
+  const visible = rows.filter(r => !r.deleted);
+  const successful = visible.filter(r => String(r.result || '').startsWith('Успешно') || String(r.result || '').startsWith('Завершил')).length;
+  const removed = visible.filter(r => r.result === 'Не справился с грузом ответственности' || r.result === 'Был снят').length;
+  const voluntary = visible.filter(r => String(r.result || '').includes('собственному')).length;
+
+  root.innerHTML = `
+    <div class="archive-overview">
+      <div class="archive-stat"><span>Записей</span><b>${visible.length}</b></div>
+      <div class="archive-stat"><span>Успешных сроков</span><b class="archive-stat-good">${successful}</b></div>
+      <div class="archive-stat"><span>Снято</span><b class="archive-stat-bad">${removed}</b></div>
+      <div class="archive-stat"><span>Ушли сами</span><b>${voluntary}</b></div>
+    </div>
+    <div class="archive-grid">${rows.map(r => {
+      const duration = archiveDurationDays(r.startDate, r.endDate);
+      return `<article class="archive-card${r.deleted ? ' is-deleted' : ''}">
+        <div class="archive-card-top">
+          <div class="archive-card-faction">${factionChipHtml(r.factionId, r.factionName || factionName(r.factionId))}</div>
+          <span class="badge ${archiveResultTone(r.result)}">${escapeHtml(r.result)}</span>
         </div>
-        <span class="badge ${archiveResultTone(r.result)}">${escapeHtml(r.result)}</span>
-      </div>
-      <div class="ai-dates mono">${fmtISO(r.startDate)} — ${fmtISO(r.endDate)}</div>
-      ${r.reason ? `<div class="ai-field"><b>Причина:</b> ${escapeHtml(r.reason)}</div>` : ''}
-      ${r.comment ? `<div class="ai-field"><b>Комментарий:</b> ${escapeHtml(r.comment)}</div>` : ''}
-      ${r.extra ? `<div class="ai-field"><b>Дополнительно:</b> ${escapeHtml(r.extra)}</div>` : ''}
-      ${r.deleted ? `<div class="ai-field deleted-note">Удалено ${fmtDateTime(r.deletedAt)}${r.deletedByEmail ? ' · ' + escapeHtml(r.deletedByEmail) : ''}${r.deleteReason ? ' · ' + escapeHtml(r.deleteReason) : ''}</div>` : ''}
-      ${isSiteAdmin() ? `<div class="ai-actions">
-        <button class="btn btn-ghost btn-sm" data-action="versions" data-type="leaderHistory" data-id="${escapeHtml(r.id)}">История</button>
-        ${r.deleted
-          ? `<button class="btn btn-ghost btn-sm" data-action="archive-restore" data-id="${escapeHtml(r.id)}">Восстановить</button>
-             <button class="btn btn-ghost btn-sm danger-text" data-action="purge" data-type="leaderHistory" data-id="${escapeHtml(r.id)}">Удалить навсегда</button>`
-          : `<button class="btn btn-ghost btn-sm" data-action="archive-edit" data-id="${escapeHtml(r.id)}">Изменить</button>
-             <button class="btn btn-ghost btn-sm danger-text" data-action="archive-delete" data-id="${escapeHtml(r.id)}">Удалить</button>`}
-      </div>` : ''}
-    </div>`).join('')}</div>`;
+        <div class="archive-leader-block">
+          <span class="archive-label">Лидер</span>
+          <strong class="archive-leader-name">${escapeHtml(r.leader || '—')}</strong>
+        </div>
+        <div class="archive-term">
+          <div><span>Начало срока</span><b>${fmtISO(r.startDate)}</b></div>
+          <span class="archive-term-arrow">→</span>
+          <div><span>Конец срока</span><b>${fmtISO(r.endDate)}</b></div>
+        </div>
+        <div class="archive-card-bottom">
+          <span class="archive-duration">${duration ? `${duration} дн.` : 'Срок не определён'}</span>
+          ${r.deleted ? `<span class="archive-deleted-note">Удалено ${fmtDateTime(r.deletedAt)}</span>` : ''}
+        </div>
+        ${isSiteAdmin() ? `<div class="ai-actions archive-actions">
+          <button class="btn btn-ghost btn-sm" data-action="versions" data-type="leaderHistory" data-id="${escapeHtml(r.id)}">История</button>
+          ${r.deleted
+            ? `<button class="btn btn-ghost btn-sm" data-action="archive-restore" data-id="${escapeHtml(r.id)}">Восстановить</button>
+               <button class="btn btn-ghost btn-sm danger-text" data-action="purge" data-type="leaderHistory" data-id="${escapeHtml(r.id)}">Удалить навсегда</button>`
+            : `<button class="btn btn-ghost btn-sm" data-action="archive-edit" data-id="${escapeHtml(r.id)}">Изменить</button>
+               <button class="btn btn-ghost btn-sm danger-text" data-action="archive-delete" data-id="${escapeHtml(r.id)}">Удалить</button>`}
+        </div>` : ''}
+      </article>`;
+    }).join('')}</div>`;
 }
 
 function archiveResultTone(result){
   if (!result) return 'badge-grey';
   if (result.startsWith('Успешно') || result.startsWith('Завершил')) return 'badge-green';
-  if (result === 'Был снят') return 'badge-red';
+  if (result === 'Не справился с грузом ответственности' || result === 'Был снят') return 'badge-red';
   return 'badge-yellow';
 }
 
 function openArchiveModal(id){
   const r = id ? _archive.find(x => x.id === id) : null;
   openModal(`
-    <h2>${r ? 'Запись архива' : 'Новая запись архива'}</h2>
+    <div class="archive-modal-head">
+      <div>
+        <div class="modal-kicker">Архив лидеров</div>
+        <h2>${r ? 'Изменить запись' : 'Добавить завершённый срок'}</h2>
+      </div>
+    </div>
     <div class="field"><label for="aFaction">Фракция</label><select id="aFaction">${factionGroupedOptionsHtml(r ? r.factionId : '', 'Выберите фракцию')}</select></div>
     <div class="field"><label for="aLeader">Лидер</label><input type="text" id="aLeader" maxlength="120" value="${escapeHtml(r ? r.leader : '')}" placeholder="Никнейм лидера"></div>
-    <div class="grid-2">
+    <div class="grid-2 archive-date-grid">
       <div class="field"><label for="aStart">Начало срока</label><input type="date" id="aStart" value="${escapeHtml(r ? r.startDate : '')}"></div>
       <div class="field"><label for="aEnd">Конец срока</label><input type="date" id="aEnd" value="${escapeHtml(r ? r.endDate : '')}"></div>
     </div>
     <div class="field"><label for="aResult">Результат</label><select id="aResult">${ARCHIVE_RESULTS.map(x => `<option${r && r.result === x ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
-    <div class="field"><label for="aReason">Причина</label><input type="text" id="aReason" maxlength="300" value="${escapeHtml(r ? r.reason || '' : '')}"></div>
-    <div class="field"><label for="aComment">Комментарий</label><textarea id="aComment" rows="3" maxlength="2000">${escapeHtml(r ? r.comment || '' : '')}</textarea></div>
-    <div class="field"><label for="aExtra">Дополнительная информация</label><textarea id="aExtra" rows="2" maxlength="2000">${escapeHtml(r ? r.extra || '' : '')}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" data-action="modal-close">Отмена</button>
       <button class="btn btn-primary" id="aSaveBtn" data-action="archive-save" data-id="${escapeHtml(r ? r.id : '')}"><span class="spinner"></span><span>Сохранить</span></button>
     </div>`);
+  if (typeof flatpickr === 'function') {
+    const locale = flatpickr.l10ns?.ru || undefined;
+    ['#aStart', '#aEnd'].forEach(selector => {
+      const input = document.querySelector(selector);
+      if (input) flatpickr(input, {
+        locale,
+        dateFormat: 'Y-m-d',
+        altInput: true,
+        altFormat: 'd.m.Y',
+        allowInput: true,
+        disableMobile: false
+      });
+    });
+  }
 }
 
 async function saveArchive(id){
@@ -89,9 +134,11 @@ async function saveArchive(id){
   const startDate = document.getElementById('aStart').value;
   const endDate = document.getElementById('aEnd').value;
   const result = document.getElementById('aResult').value;
-  const reason = document.getElementById('aReason').value.trim();
-  const comment = document.getElementById('aComment').value.trim();
-  const extra = document.getElementById('aExtra').value.trim();
+  const existing = id ? _archive.find(x => x.id === id) : null;
+  // Старые дополнительные поля сохраняем в данных для совместимости, но больше не показываем в интерфейсе.
+  const reason = existing?.reason || '';
+  const comment = existing?.comment || '';
+  const extra = existing?.extra || '';
   if (!factionId || !leader || !startDate || !endDate){ toast('Заполните фракцию, лидера и даты', 'error'); return; }
   if (endDate < startDate){ toast('Конец срока не может быть раньше начала', 'error'); return; }
   setLoading(btn, true);
@@ -111,7 +158,6 @@ async function saveArchive(id){
     await batch.commit();
     closeModal();
     toast('Запись сохранена');
-    loadArchive();
   } catch (err){
     failToast(err, 'Не удалось сохранить запись');
   } finally {
@@ -133,7 +179,6 @@ async function deleteArchive(id){
     addAudit(batch, { action: 'Удалил запись архива лидеров', objectType: 'leaderHistory', objectId: id, oldValue: { leader: r.leader, result: r.result }, additionalInfo: res.reason, faction: r.factionId });
     await batch.commit();
     toast('Запись удалена');
-    loadArchive();
   } catch (err){
     failToast(err, 'Не удалось удалить запись');
   }
@@ -153,7 +198,6 @@ async function restoreArchive(id){
     addAudit(batch, { action: 'Восстановил удалённую запись архива', objectType: 'leaderHistory', objectId: id, newValue: { leader: r.leader, result: r.result }, faction: r.factionId });
     await batch.commit();
     toast('Запись восстановлена');
-    loadArchive();
   } catch (err){
     failToast(err, 'Не удалось восстановить запись');
   }

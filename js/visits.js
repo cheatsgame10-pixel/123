@@ -1,42 +1,39 @@
 let _visitStarted = 0;
 
-async function startVisit(){
+async function startVisit() {
   if (state.visitId) return;
   state.sessionId = randomId();
   _visitStarted = Date.now();
-  const ref = db.collection('visits').doc();
-  const u = state.user;
   try {
-    await ref.set({
+    const result = await firebaseApiRequest('/visits/start', {
       sessionId: state.sessionId,
-      timestamp: FieldValue.serverTimestamp(),
-      entryAt: FieldValue.serverTimestamp(),
-      uid: u ? u.uid : null,
-      email: u ? u.email : null,
-      role: u ? u.systemRole : 'guest',
-      isGuest: !u,
-      page: state.tab || 'leaders',
-      lastPage: state.tab || 'leaders',
-      exitAt: null,
-      duration: null
-    });
-    state.visitId = ref.id;
-  } catch (err){
-    console.error('Посещение', err);
+      page: state.tab || 'leaders'
+    }, { authRequired: false });
+    state.visitId = result.visitId || null;
+  } catch (err) {
+    console.warn('Посещение не записано:', err.code || err.message);
   }
 }
 
-function visitPage(tab){
-  if (!state.visitId) return;
-  db.collection('visits').doc(state.visitId).update({ lastPage: tab }).catch(err => console.error('Посещение', err));
+function visitPage(tab) {
+  if (!state.visitId || !state.sessionId) return;
+  firebaseApiRequest('/visits/page', {
+    visitId: state.visitId,
+    sessionId: state.sessionId,
+    page: tab
+  }, { authRequired: false }).catch(() => {});
 }
 
-function endVisit(){
-  if (!state.visitId) return;
+function endVisit() {
+  if (!state.visitId || !state.sessionId) return;
   const duration = Math.round((Date.now() - _visitStarted) / 1000);
-  db.collection('visits').doc(state.visitId).update({ exitAt: FieldValue.serverTimestamp(), duration }).catch(() => {});
+  firebaseApiRequest('/visits/end', {
+    visitId: state.visitId,
+    sessionId: state.sessionId,
+    duration
+  }, { authRequired: false }).catch(() => {});
 }
 
-function bindVisitLifecycle(){
+function bindVisitLifecycle() {
   window.addEventListener('pagehide', endVisit);
 }

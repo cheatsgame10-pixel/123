@@ -55,7 +55,7 @@ function unmappedForumKeys(){
 
 function factionOptionsHtml(ids, selected){
   const list = ids.map(id => state.factionsById[id]).filter(Boolean).filter(f => f.active !== false).sort(sortByName);
-  return list.map(f => `<option value="${escapeHtml(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('');
+  return list.map(f => `<option value="${escapeHtml(f.id)}" data-dropdown-html="${escapeHtml(factionDropdownLabelHtml(f))}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('');
 }
 
 function factionGroupedOptionsHtml(selected, includeEmpty){
@@ -64,7 +64,7 @@ function factionGroupedOptionsHtml(selected, includeEmpty){
   return (includeEmpty ? `<option value="">${escapeHtml(includeEmpty)}</option>` : '') +
     CATEGORY_ORDER.filter(c => groups[c]).map(c =>
       `<optgroup label="${escapeHtml(CATEGORY_NAMES[c])}">${groups[c].sort(sortByName).map(f =>
-        `<option value="${escapeHtml(f.id)}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}</optgroup>`).join('');
+        `<option value="${escapeHtml(f.id)}" data-dropdown-html="${escapeHtml(factionDropdownLabelHtml(f))}"${f.id === selected ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}</optgroup>`).join('');
 }
 
 async function changeFactionId(oldId, newId){
@@ -85,9 +85,15 @@ async function changeFactionId(oldId, newId){
   };
 
   await updateCollectionField('leaderHistory', 'factionId');
-  await updateCollectionField('reports', 'factionId');
   await updateCollectionField('dutyAssignments', 'factionId');
   await updateCollectionField('users', 'faction');
+
+  const curatedUsersSnap = await db.collection('users').where('curatedFactions', 'array-contains', oldId).get();
+  curatedUsersSnap.forEach(doc => {
+    const userData = doc.data();
+    const curatedFactions = (userData.curatedFactions || []).map(fid => fid === oldId ? newId : fid);
+    batch.update(doc.ref, { curatedFactions, updatedAt: FieldValue.serverTimestamp() });
+  });
 
   const dutyWeeksSnap = await db.collection('dutyWeeks').where('factionId', '==', oldId).get();
   dutyWeeksSnap.forEach(doc => {
@@ -172,7 +178,7 @@ function renderFactionsSection(){
         <thead><tr><th></th><th>Название</th><th>Ключ на форуме</th><th>Категория</th><th>ID</th><th>Статус</th><th></th></tr></thead>
         <tbody>${rows.map(f => `
           <tr class="${f.active === false ? 'row-muted' : ''}">
-            <td>${f.logoUrl ? `<img class="faction-logo-sm" src="${escapeHtml(f.logoUrl)}" alt="">` : `<div class="faction-logo-sm faction-logo-empty">${escapeHtml(initialsOf(f.name))}</div>`}</td>
+            <td>${safeExternalUrl(f.logoUrl) ? `<img class="faction-logo-sm" src="${escapeHtml(safeExternalUrl(f.logoUrl))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</td>
             <td><b>${escapeHtml(f.name)}</b></td>
             <td class="mono">${escapeHtml(f.forumKey || '—')}</td>
             <td>${escapeHtml(CATEGORY_NAMES[f.category] || 'Другое')}</td>

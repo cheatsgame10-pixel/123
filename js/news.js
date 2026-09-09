@@ -1,18 +1,23 @@
 let _news = [];
+let _newsUnsub = null;
 
 async function loadNews(){
   const root = document.getElementById('newsRoot');
-  if (!isSignedIn()){ root.innerHTML = lockedState('Войдите, чтобы читать новости.'); return; }
+  if (!isSignedIn()){
+    if (_newsUnsub) { _newsUnsub(); _newsUnsub = null; }
+    root.innerHTML = lockedState('Войдите, чтобы читать новости.');
+    return;
+  }
+  if (_newsUnsub) { _newsUnsub(); _newsUnsub = null; }
   root.innerHTML = skeletonRows(4);
-  try {
-    const snap = await db.collection('news').where('deleted', '==', false).limit(100).get();
+  _newsUnsub = db.collection('news').where('deleted', '==', false).limit(100).onSnapshot(snap => {
     _news = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     _news.sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
     renderNews();
-  } catch (err){
+  }, err => {
     console.error('Новости', err);
     root.innerHTML = errorState('Не удалось загрузить новости. ' + humanError(err), 'retry-news');
-  }
+  });
 }
 
 function renderNews(){
@@ -71,7 +76,6 @@ async function saveNews(id){
     await batch.commit();
     closeModal();
     toast(id ? 'Новость обновлена' : 'Новость опубликована');
-    loadNews();
   } catch (err){
     failToast(err, 'Не удалось сохранить новость');
   } finally {
@@ -91,7 +95,6 @@ async function deleteNews(id){
     addAudit(batch, { action: 'Удалил новость', objectType: 'news', objectId: id, oldValue: { title: n.title }, additionalInfo: res.reason });
     await batch.commit();
     toast('Новость удалена');
-    loadNews();
   } catch (err){
     failToast(err, 'Не удалось удалить новость');
   }

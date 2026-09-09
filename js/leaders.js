@@ -1,4 +1,5 @@
 let _leaderUsers = {};
+let _leaderUsersUnsub = null;
 
 function loadCachedForum(){
   try {
@@ -45,28 +46,42 @@ ERROR_MESSAGES['empty'] = 'Сервер не вернул данные о лид
 async function afterForumLoaded(){
   await loadLeaderUsers();
   renderLeaders();
-  if (state.tab === 'reports') initReportForm();
   if (state.tab === 'factions') renderFactionsSection();
   if (state.tab === 'dashboard') renderDashboard();
 }
 
 async function loadLeaderUsers(){
+  if (_leaderUsersUnsub) { _leaderUsersUnsub(); _leaderUsersUnsub = null; }
   _leaderUsers = {};
   if (!isSignedIn()) return;
-  try {
-    const base = db.collection('users').where('systemRole', '==', 'leader').where('active', '==', true);
-    if (isSiteAdmin() || (isStaff() && myLevel() >= 4)){
-      const snap = await base.get();
-      snap.forEach(d => { const u = d.data(); if (u.faction) _leaderUsers[u.faction] = { uid: d.id, ...u }; });
-    } else if (isStaff() && curatedFactions().length){
-      const snap = await base.where('faction', 'in', curatedFactions().slice(0, 30)).get();
-      snap.forEach(d => { const u = d.data(); if (u.faction) _leaderUsers[u.faction] = { uid: d.id, ...u }; });
-    } else if (isLeader()){
-      _leaderUsers[myFaction()] = state.user;
-    }
-  } catch (err){
-    console.error('Аккаунты лидеров', err);
+
+  if (isLeader()) {
+    _leaderUsers[myFaction()] = state.user;
+    return;
   }
+
+  let query = db.collection('users').where('systemRole', '==', 'leader').where('active', '==', true);
+  if (!(isSiteAdmin() || (isStaff() && myLevel() >= 4))) {
+    if (!isStaff() || !curatedFactions().length) return;
+    query = query.where('faction', 'in', curatedFactions().slice(0, 30));
+  }
+
+  await new Promise(resolve => {
+    let first = true;
+    _leaderUsersUnsub = query.onSnapshot(snap => {
+      _leaderUsers = {};
+      snap.forEach(d => {
+        const u = d.data();
+        if (u.faction) _leaderUsers[u.faction] = { uid: d.id, ...u };
+      });
+      if (state.forum && state.tab === 'leaders') renderLeaders();
+      if (state.tab === 'dashboard') renderDashboard();
+      if (first) { first = false; resolve(); }
+    }, err => {
+      console.error('Аккаунты лидеров', err);
+      if (first) { first = false; resolve(); }
+    });
+  });
 }
 
 function updateForumNote(){
@@ -199,7 +214,7 @@ function renderLeaderCard({ key, entry, faction, info, category }){
   card.innerHTML = `
     <div class="lc-top">
       <div class="lc-identity">
-        ${faction?.logoUrl ? `<img class="faction-logo" src="${escapeHtml(faction.logoUrl)}" alt="">` : `<div class="faction-logo faction-logo-empty">${escapeHtml(initialsOf(name))}</div>`}
+        ${safeExternalUrl(faction?.logoUrl) ? `<img class="faction-logo" src="${escapeHtml(safeExternalUrl(faction.logoUrl))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}
         <div class="lc-titles">
           <div class="lc-faction">${escapeHtml(name)}${mine ? `<span class="mine-tag">${isLeader() ? 'Вы' : 'Моя'}</span>` : ''}</div>
           <div class="lc-name">${leaderUser ? avatarHtml(leaderUser.avatarUrl, entry.nickname, 'avatar-xs') : ''}<span>${isVacant ? 'Не назначено' : escapeHtml(entry.nickname)}</span></div>

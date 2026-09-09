@@ -1,14 +1,12 @@
 const RECOVERY_SOURCES = [
-  { col: 'reports', type: 'report', label: 'Отчёты', title: r => `${r.leaderName} — ${r.factionName}, ${fmtISO(r.date)}` },
   { col: 'leaderHistory', type: 'leaderHistory', label: 'Архив лидеров', title: r => `${r.factionName} — ${r.leader}` },
   { col: 'news', type: 'news', label: 'Новости', title: r => r.title },
   { col: 'supportTickets', type: 'supportTicket', label: 'Заявки поддержки', title: r => r.title },
   { col: 'dutyAssignments', type: 'dutyAssignment', label: 'Обязанности', title: r => `${r.name} — ${r.factionName}` }
 ];
 
-const VERSION_COLLECTIONS = { report: 'reports', reports: 'reports', leaderHistory: 'leaderHistory', news: 'news', supportTicket: 'supportTickets', dutyAssignment: 'dutyAssignments', user: 'users', faction: 'factions' };
+const VERSION_COLLECTIONS = { leaderHistory: 'leaderHistory', news: 'news', supportTicket: 'supportTickets', dutyAssignment: 'dutyAssignments', user: 'users', faction: 'factions' };
 const RESTORABLE_KEYS = {
-  reports: ['leaderName', 'date', 'problems', 'improvements', 'comment'],
   leaderHistory: ['factionId', 'factionName', 'leader', 'startDate', 'endDate', 'result', 'reason', 'comment', 'extra'],
   news: ['title', 'text'],
   dutyAssignments: ['dateFrom', 'dateTo', 'status', 'comment'],
@@ -17,23 +15,39 @@ const RESTORABLE_KEYS = {
 };
 
 let _deleted = [];
+let _recoveryUnsubs = [];
+let _recoveryBuckets = {};
 
 async function loadRecovery(){
   const root = document.getElementById('recoveryRoot');
-  if (!isSiteAdmin()){ root.innerHTML = lockedState('Раздел доступен администратору сайта.'); return; }
+  _recoveryUnsubs.forEach(unsub => unsub());
+  _recoveryUnsubs = [];
+  _recoveryBuckets = {};
+  if (!isSiteAdmin()){
+    root.innerHTML = lockedState('Раздел доступен администратору сайта.');
+    return;
+  }
   root.innerHTML = skeletonRows(5);
-  try {
-    _deleted = [];
-    for (const src of RECOVERY_SOURCES){
-      const snap = await db.collection(src.col).where('deleted', '==', true).limit(100).get();
-      snap.forEach(d => _deleted.push({ src, id: d.id, data: d.data() }));
-    }
+
+  const rebuild = () => {
+    _deleted = RECOVERY_SOURCES.flatMap(src => (_recoveryBuckets[src.col] || []).map(x => ({ src, ...x })));
     _deleted.sort((a, b) => (toDate(b.data.deletedAt)?.getTime() || 0) - (toDate(a.data.deletedAt)?.getTime() || 0));
     renderRecovery();
-  } catch (err){
-    console.error('Восстановление', err);
-    root.innerHTML = errorState('Не удалось загрузить удалённые данные. ' + humanError(err), 'retry-recovery');
-  }
+  };
+
+  let ready = 0;
+  RECOVERY_SOURCES.forEach(src => {
+    const unsub = db.collection(src.col).where('deleted', '==', true).limit(100).onSnapshot(snap => {
+      _recoveryBuckets[src.col] = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+      ready += 1;
+      if (ready >= RECOVERY_SOURCES.length || state.tab === 'recovery') rebuild();
+    }, err => {
+      console.error(`Восстановление: ${src.col}`, err);
+      ready += 1;
+      if (ready >= RECOVERY_SOURCES.length) rebuild();
+    });
+    _recoveryUnsubs.push(unsub);
+  });
 }
 
 function renderRecovery(){
@@ -107,8 +121,6 @@ function pickSummary(col, data){
 }
 
 function refreshAfterRecovery(col){
-  if (state.tab === 'recovery') loadRecovery();
-  if (state.tab === 'reports' && col === 'reports') loadReports();
   if (state.tab === 'archive' && col === 'leaderHistory') loadArchive();
   if (state.tab === 'news' && col === 'news') loadNews();
   if (state.tab === 'support' && col === 'supportTickets') loadTickets();

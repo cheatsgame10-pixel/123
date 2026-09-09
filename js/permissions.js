@@ -32,9 +32,8 @@ function myFaction(){
 
 function canEditDutyTasks(factionId) {
   if (isSiteAdmin()) return true;
-  if (!isStaff() || !curates(factionId)) return false;
-  if ((role() === 'curator' || role() === 'server_admin') && can('manageDuties')) return true;
-  return can('editDutyTasks');
+  if (role() === 'curator_assistant') return false;
+  return isStaff() && curates(factionId) && can('editDutyTasks');
 }
 
 function curatedFactions(){
@@ -63,28 +62,21 @@ function curates(factionId){
   return curatedFactions().includes(factionId);
 }
 
-function canViewReports(){
-  return isSiteAdmin() || isLeader() || (isStaff() && can('viewReports')) || isChiefOverseer();
-}
-
-function canCreateReports(){
-  return isSiteAdmin() || isLeader();
-}
-
-function canDeleteReport(r){
-  if (isSiteAdmin()) return true;
-  return isStaff() && can('manageReports') && curates(r.factionId);
-}
-
-function reportFactionIds(){
-  if (isSiteAdmin()) return state.factions.filter(f => f.active !== false).map(f => f.id);
-  if (isLeader()) return [myFaction()];
-  if (isStaff()) return curatedFactions();
-  return [];
-}
 
 function canManageDuties(){
   return isSiteAdmin() || (isStaff() && can('manageDuties'));
+}
+
+function canAssignDutyUser(factionId, targetUid){
+  if (!isSignedIn() || !curates(factionId)) return false;
+  if (isSiteAdmin()) return true;
+  if (role() === 'curator_assistant') return targetUid === state.user.uid;
+  const target = typeof getCuratorUsersForFaction === 'function'
+    ? getCuratorUsersForFaction(factionId).find(u => u.uid === targetUid)
+    : null;
+  if (role() === 'curator' && can('manageDuties')) return targetUid === state.user.uid || target?.systemRole === 'curator_assistant';
+  if ((role() === 'server_admin' || role() === 'chief_overseer') && can('manageDuties')) return true;
+  return targetUid === state.user.uid;
 }
 
 function canViewDutyStats() {
@@ -102,7 +94,18 @@ function canViewDutyArchiveStats() {
 function canManageDutyTemplates(factionId) {
   if (isSiteAdmin()) return true;
   if (!isStaff() || !curates(factionId)) return false;
-  return role() === 'curator' || role() === 'server_admin';
+  // Помощник куратора может работать с назначенными обязанностями, но шаблоны
+  // изменять не может ни через UI, ни через прямой вызов функции.
+  if (role() === 'curator_assistant') return false;
+  if (role() === 'curator') return can('editDutyTasks');
+  if (role() === 'chief_overseer' || role() === 'server_admin') return can('manageDuties');
+  return false;
+}
+
+function canViewUsers(){
+  if (isSiteAdmin()) return true;
+  if (!isStaff()) return false;
+  return can('viewUsers') || can('manageUsers') || myLevel() >= 4;
 }
 
 function canManageSupport(){
@@ -152,18 +155,14 @@ function canAccessTab(tab){
     case 'dashboard':
     case 'news':
       return isSignedIn();
-    case 'reports':
-      return canViewReports();
     case 'duties':
       return canManageDuties();
-    case 'nickcheck':
-    case 'cheat-report':
-    case 'cheat-history':
+    case 'faction-checks':
       return canManageDuties();
     case 'pending':
       return isSiteAdmin();
     case 'users':
-      return isSiteAdmin() || isStaff();
+      return canViewUsers();
     case 'factions':
     case 'recovery':
       return isSiteAdmin();

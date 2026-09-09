@@ -1,11 +1,11 @@
 const firebaseConfig = {
- apiKey: "AIzaSyD2BMfoRTbTtH9FYjDytVi76DIzV214qh4",
- authDomain: "sixseven-ee46d.firebaseapp.com",
- projectId: "sixseven-ee46d",
- storageBucket: "sixseven-ee46d.firebasestorage.app",
- messagingSenderId: "379110992970",
- appId: "1:379110992970:web:2d6d57d6d72ba62913cab3",
- measurementId: "G-QT6ML9TWLW"
+  apiKey: "AIzaSyBJwlx1s7H6nJU98YYshx-R3QyfvS4KIy4",
+  authDomain: "gta5rp-hub.firebaseapp.com",
+  projectId: "gta5rp-hub",
+  storageBucket: "gta5rp-hub.firebasestorage.app",
+  messagingSenderId: "166803632974",
+  appId: "1:166803632974:web:0cc3c0be44135b0636641f",
+  measurementId: "G-FZVFHS950N"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -13,6 +13,7 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
 const FieldValue = firebase.firestore.FieldValue;
+const FIREBASE_API_BASE = 'https://us-central1-gta5rp-hub.cloudfunctions.net/api';
 
 const API_URL = 'https://la-puerta-proxy.vercel.app/';
 const API_TIMEOUT_MS = 15000;
@@ -37,8 +38,9 @@ const ROLES = {
   site_admin: 'Администратор сайта'
 };
 
+const ASSIGNABLE_SYSTEM_ROLES = ['curator_assistant', 'curator', 'chief_overseer', 'site_admin'];
 const STAFF_ROLES = ['curator_assistant', 'curator', 'chief_overseer', 'server_admin'];
-const CURATION_ROLES = ['leader', 'curator_assistant', 'curator', 'chief_overseer'];
+const CURATION_ROLES = ['curator_assistant', 'curator', 'chief_overseer'];
 
 const OVERSEER_DIRECTIONS = ['state', 'ghetto', 'mafia'];
 const OVERSEER_DIRECTION_LABELS = {
@@ -64,23 +66,21 @@ const LEVELS = {
 };
 
 const PERMISSIONS = {
-  viewReports: 'Просмотр отчётов',
-  manageReports: 'Удаление отчётов',
   editLeaderNickname: 'Изменение никнейма лидера',
   manageDuties: 'Обязанности',
   editDutyTasks: 'Редактировать задачи',
   viewAudit: 'Просмотр журнала действий',
   manageArchive: 'Управление архивом',
+  viewUsers: 'Просмотр пользователей',
   manageUsers: 'Управление пользователями',
   manageAdmins: 'Управление администраторами'
 };
 
 const CURATION_PERMISSIONS = [
-  'viewReports',
-  'manageReports',
   'editLeaderNickname',
   'manageDuties',
-  'editDutyTasks'
+  'editDutyTasks',
+  'viewUsers'
 ];
 
 const CATEGORY_NAMES = {
@@ -96,10 +96,8 @@ const SIDE_GOV = ['gov', 'judicial'];
 
 const ARCHIVE_RESULTS = [
   'Успешно завершил срок',
-  'Успешно завершила срок',
   'Ушёл по собственному желанию',
-  'Был снят',
-  'Завершил 3 срока'
+  'Не справился с грузом ответственности'
 ];
 
 const TICKET_TYPES = { bug: 'Баг', idea: 'Предложение' };
@@ -115,8 +113,6 @@ const DUTY_DEFAULTS = {
     'Проверить роли в Discord',
     'Проверить статьи',
     'Проверить задачи',
-    'Проверить склад',
-    'Проверить пополнение казны',
     'Провести кадровый аудит'
   ],
   fib: [
@@ -127,7 +123,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   ems: [
@@ -151,9 +146,7 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну',
-    'Проверить активность сотрудников'
   ],
   lssd: [
     'Проверить твинки в игре',
@@ -163,7 +156,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   ng: [
@@ -174,7 +166,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   saspa: [
@@ -185,7 +176,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   wn: [
@@ -196,7 +186,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   mm: [
@@ -207,7 +196,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   am: [
@@ -218,7 +206,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   rm: [
@@ -229,7 +216,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   yak: [
@@ -240,7 +226,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   lcn: [
@@ -251,7 +236,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   'mg-13': [
@@ -262,7 +246,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   esb: [
@@ -273,7 +256,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   lsv: [
@@ -284,7 +266,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   bsg: [
@@ -295,7 +276,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ],
   fam: [
@@ -306,7 +286,6 @@ const DUTY_DEFAULTS = {
     'Проверить задачи',
     'Проверить никнеймы в игре',
     'Провести кадровый аудит',
-    'Проверить склад',
     'Проверить казну'
   ]
 };
@@ -319,7 +298,6 @@ const DUTY_TASK_POOL = [
   'Проверить никнеймы в игре',
   'Проверить задачи',
   'Провести кадровый аудит',
-  'Проверить склад',
   'Проверить слив склада',
   'Проверить статьи',
   'Проверить корректность медицинских карт',
@@ -327,8 +305,6 @@ const DUTY_TASK_POOL = [
   'Проверить военные билеты',
   'Проверить отчеты с Bizwar',
   'Проверить отчеты с Ghetto',
-  'Проверить активность сотрудников',
-  'Проверить пополнение казны'
 ];
 
 const DEFAULT_DUTY_TASKS = [
@@ -339,26 +315,38 @@ const DEFAULT_DUTY_TASKS = [
   'Проверить задачи',
   'Проверить никнеймы в игре',
   'Провести кадровый аудит',
-  'Проверить склад',
   'Проверить казну'
 ];
+
+const THEME_NAMES = ['purple', 'red', 'orange', 'green', 'pink', 'black'];
+const THEME_LABELS = {
+  purple: 'Фиолетовый',
+  red: 'Красный',
+  orange: 'Оранжевый',
+  green: 'Зелёный',
+  pink: 'Розовый',
+  black: 'Чёрный'
+};
+
+const FACTION_COLOR_CODES = {
+  LSPD: 'lspd', EMS: 'ems', GOV: 'gov', FP: 'fp', WN: 'wn', LSSD: 'lssd',
+  NG: 'ng', FIB: 'fib', AM: 'am', MM: 'mm', RM: 'rm', LCN: 'lcn', YAK: 'yak',
+  ESB: 'esb', 'MG-13': 'mg13', LSV: 'lsv', BSG: 'bsg', FAM: 'fam'
+};
 
 const TAB_TITLES = {
   dashboard: 'Главная',
   leaders: 'Список лидеров',
   archive: 'Архив лидеров',
   news: 'Новости',
-  reports: 'Отчёты',
   duties: 'Обязанности',
+  'faction-checks': 'Проверка фракций',
   support: 'Поддержка',
   profile: 'Профиль',
   users: 'Пользователи',
   factions: 'Фракции',
   audit: 'Журнал действий',
-  recovery: 'Восстановление',
-  nickcheck: 'Проверка ников',
-  'cheat-report': 'Отчетность',
-  'cheat-history': 'История'
+  recovery: 'Восстановление'
 };
 
 const state = {
@@ -374,7 +362,6 @@ const state = {
   statusFilter: null,
   archiveSearch: '',
   archiveShowDeleted: false,
-  reportsShowDeleted: false,
   usersSearch: '',
   sessionId: null,
   visitId: null

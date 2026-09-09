@@ -1,21 +1,47 @@
+let _dashboardUnsubs = [];
+
+function stopDashboardRealtime(){
+  _dashboardUnsubs.forEach(unsub => { try { unsub(); } catch (_) {} });
+  _dashboardUnsubs = [];
+}
+
 async function renderDashboard(){
+  stopDashboardRealtime();
   const root = document.getElementById('dashboardRoot');
   if (!isSignedIn()){ root.innerHTML = lockedState('Войдите, чтобы открыть главную.'); return; }
   const u = state.user;
   const s = forumSummary();
-  const hour = new Date().getHours();
+  const hour = getMoscowNow().getHours();
   const greet = hour < 6 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
+  const displayName = cleanDiscordGuildNickname(u.displayName || u.discordGuildNickname || u.discordDisplayName || u.email);
+  const activeLeaders = s ? Math.max(0, s.total - s.vacant) : 0;
+  const urgentLeaders = state.forum ? leaderEntries().filter(x => x.info.days !== null && x.info.status !== 'vacant' && x.info.days <= 7).length : 0;
+  const nearest = state.forum ? leaderEntries().filter(x => x.info.days !== null && x.info.status !== 'vacant').sort((a,b) => a.info.days - b.info.days)[0] : null;
+  const curatedCount = isSiteAdmin() ? state.factions.filter(f => f.active !== false).length : (isLeader() ? (myFaction() ? 1 : 0) : curatedFactions().length);
+
   root.innerHTML = `
-    <section class="hero">
+    <section class="hero dashboard-hero">
       <div class="hero-left">
-        <div class="hero-kicker">GTA5RP HUB · с ${PLATFORM_YEAR} года</div>
-        <h2>${greet}, ${escapeHtml(u.displayName || u.email)}</h2>
-        <p>Единое рабочее пространство курирования: список лидеров с форума и сроками, отчёты, обязанности, архив лидерства, новости и поддержка. Каждое критическое действие проверяется правилами Firebase и попадает в журнал, а удалённое можно восстановить.</p>
-        <div class="hero-tags">${roleBadge(u)}${levelBadge(u.serverLevel)}${isLeader() ? `<span class="faction-badge">${escapeHtml(factionName(myFaction()))}</span>` : ''}${isStaff() ? (curatedFactions().length ? curatedFactions().map(f => `<span class="faction-badge">${escapeHtml(factionName(f))}</span>`).join('') : '<span class="hint">Курируемые фракции не назначены</span>') : ''}</div>
+        <div class="hero-kicker">GTA5RP HUB · рабочая сводка</div>
+        <h2>${greet}, ${escapeHtml(displayName || u.email)}</h2>
+        <div class="dashboard-role-line">
+          ${roleBadge(u)}
+          ${(isStaff() || isSiteAdmin()) ? levelBadge(u.serverLevel) : ''}
+          ${isLeader() && myFaction() ? factionChipHtml(myFaction()) : ''}
+        </div>
+        <div class="dashboard-context">
+          ${isSiteAdmin()
+            ? 'Полный обзор проекта: лидеры, обязанности, заявки и журнал изменений.'
+            : (isLeader() && myFaction()
+              ? `Ваша фракция: ${factionChipHtml(myFaction())}`
+              : (curatedFactions().length
+                ? `Курируемые фракции: ${curatedFactions().map(f => factionChipHtml(f)).join(' ')}`
+                : 'Курируемые фракции пока не назначены.'))}
+        </div>
       </div>
       <div class="hero-right">
         ${s ? `
-        <div class="ring-wrap" data-tab="leaders" role="button" tabindex="0">
+        <div class="ring-wrap" data-tab="leaders" role="button" tabindex="0" title="Открыть список лидеров">
           ${ringSvg(s)}
           <div class="ring-legend">
             <div><i style="background:var(--green)"></i>Недавно назначены <b>${s.green}</b></div>
@@ -23,36 +49,26 @@ async function renderDashboard(){
             <div><i style="background:var(--red)"></i>Конец срока и просрочка <b>${s.red}</b></div>
             <div><i style="background:var(--grey)"></i>Нет лидера <b>${s.vacant}</b></div>
           </div>
-          <div class="custom-tooltip">Открыть список лидеров</div>
         </div>` : '<div class="hint">Данные форума ещё загружаются.</div>'}
       </div>
     </section>
-    <div class="dash-grid" id="dashGrid">
-      <div class="card dash-block"><h3>Ближайшие сроки</h3><div id="dashDeadlines">${upcomingDeadlinesHtml()}</div></div>
-      <div class="card dash-block"><h3>Новости</h3><div id="dashNews">${skeletonRows(2)}</div></div>
-      ${canManageDuties() ? `<div class="card dash-block"><h3>Мои обязанности</h3><div id="dashDuties">${skeletonRows(2)}</div></div>` : ''}
-      ${isSiteAdmin() ? `<div class="card dash-block"><h3>Заявки на рассмотрении</h3><div id="dashTickets">${skeletonRows(2)}</div></div>` : ''}
-      ${canAccessTab('audit') ? `<div class="card dash-block dash-wide"><h3>Последние действия</h3><div id="dashAudit">${skeletonRows(3)}</div></div>` : ''}
-    </div>
-    <div class="group-title">Разделы</div>
-    <div class="actions-grid">${quickActions().map(a => `
-      <button class="action-card" data-tab="${a.tab}">
-        <div class="ac-title">${escapeHtml(a.title)}</div>
-        <div class="ac-text">${escapeHtml(a.text)}</div>
-      </button>`).join('')}</div>`;
-  loadDashBlocks();
 
-  // Initialize custom tooltip for ring-wrap
-  const ringWrap = document.querySelector('.ring-wrap');
-  const tooltip = document.querySelector('.ring-wrap .custom-tooltip');
-  if (ringWrap && tooltip) {
-    ringWrap.addEventListener('mouseenter', () => {
-      tooltip.classList.add('show');
-    });
-    ringWrap.addEventListener('mouseleave', () => {
-      tooltip.classList.remove('show');
-    });
-  }
+    <div class="dashboard-kpis">
+      <div class="dashboard-kpi"><span>Активных лидеров</span><b>${s ? activeLeaders : '—'}</b><small>${s ? `из ${s.total} фракций` : 'форум загружается'}</small></div>
+      <div class="dashboard-kpi"><span>Срок ≤ 7 дней</span><b class="${urgentLeaders ? 'kpi-alert' : ''}">${s ? urgentLeaders : '—'}</b><small>${nearest ? `ближайший: ${escapeHtml(daysText(nearest.info.days))}` : 'критичных сроков нет'}</small></div>
+      <div class="dashboard-kpi"><span>${isSiteAdmin() ? 'Активных фракций' : (isLeader() ? 'Моя фракция' : 'Курируется')}</span><b>${curatedCount}</b><small>${isSiteAdmin() ? 'в системе' : (isLeader() && myFaction() ? escapeHtml(factionName(myFaction())) : 'назначено вам')}</small></div>
+      <div class="dashboard-kpi" id="dashRealtimeKpi"><span>${isSiteAdmin() ? 'Ожидают доступа' : 'Обновление форума'}</span><b id="dashRealtimeKpiValue">${isSiteAdmin() ? '…' : (state.forumTime ? '✓' : '—')}</b><small id="dashRealtimeKpiText">${isSiteAdmin() ? 'заявки Discord' : (state.forumTime ? fmtDateTime(state.forumTime) : 'ещё не обновлялся')}</small></div>
+    </div>
+
+    <div class="dash-grid dashboard-workspace" id="dashGrid">
+      <div class="card dash-block dash-priority"><div class="dash-card-head"><h3>Ближайшие сроки</h3><span class="dash-card-icon">⌛</span></div><div id="dashDeadlines">${upcomingDeadlinesHtml()}</div></div>
+      <div class="card dash-block"><div class="dash-card-head"><h3>Новости</h3><span class="dash-card-icon">◫</span></div><div id="dashNews">${skeletonRows(2)}</div></div>
+      ${canManageDuties() ? `<div class="card dash-block"><div class="dash-card-head"><h3>Мои обязанности</h3><span class="dash-card-icon">✓</span></div><div id="dashDuties">${skeletonRows(2)}</div></div>` : ''}
+      ${isSiteAdmin() ? `<div class="card dash-block"><div class="dash-card-head"><h3>Заявки на рассмотрении</h3><span class="dash-card-icon">?</span></div><div id="dashTickets">${skeletonRows(2)}</div></div>
+      <div class="card dash-block"><div class="dash-card-head"><h3>Ожидают доступ</h3><span class="dash-card-icon">↪</span></div><div id="dashAccess">${skeletonRows(2)}</div></div>` : ''}
+      ${canAccessTab('audit') ? `<div class="card dash-block dash-wide"><div class="dash-card-head"><h3>Последние действия</h3><span class="dash-card-icon">≡</span></div><div id="dashAudit">${skeletonRows(3)}</div></div>` : ''}
+    </div>`;
+  loadDashBlocks();
 }
 
 function forumSummary(){
@@ -96,52 +112,105 @@ function upcomingDeadlinesHtml(){
     </div>`).join('')}</div>`;
 }
 
-function quickActions(){
-  const a = [];
-  a.push({ tab: 'leaders', title: 'Список лидеров', text: 'Актуальные лидеры с форума, сроки, баллы и предупреждения.' });
-  if (canViewReports()) a.push({ tab: 'reports', title: isLeader() ? 'Мои отчёты' : 'Отчёты', text: isLeader() ? `Отчёты по фракции ${factionName(myFaction())}.` : 'Отчёты по доступным вам фракциям.' });
-  if (canManageDuties()) a.push({ tab: 'duties', title: 'Обязанности', text: 'Взять проверку, обновить статус, посмотреть историю.' });
-  a.push({ tab: 'archive', title: 'Архив лидеров', text: 'История сроков, результаты и причины ухода.' });
-  a.push({ tab: 'news', title: 'Новости', text: 'Объявления администрации сайта.' });
-  a.push({ tab: 'support', title: 'Поддержка', text: 'Сообщить о баге или предложить улучшение.' });
-  if (isSiteAdmin() || isStaff()) a.push({ tab: 'users', title: 'Пользователи', text: isManager() ? 'Роли, уровни, курируемые фракции и права.' : 'Аккаунты лидеров курируемых фракций.' });
-  if (isSiteAdmin()) a.push({ tab: 'factions', title: 'Фракции', text: 'Стабильные ID, логотипы и связь с форумом.' });
-  if (canAccessTab('audit')) a.push({ tab: 'audit', title: 'Журнал действий', text: 'Кто, что и когда изменил.' });
-  if (isSiteAdmin()) a.push({ tab: 'recovery', title: 'Восстановление', text: 'Удалённые записи и версии данных.' });
-  return a;
-}
-
-async function loadDashBlocks(){
+function loadDashBlocks(){
+  stopDashboardRealtime();
   const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
-  try {
-    const snap = await db.collection('news').where('deleted', '==', false).limit(30).get();
-    const news = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0)).slice(0, 3);
-    set('dashNews', news.length ? `<div class="mini-list">${news.map(n => `<div class="mini-row" data-tab="news"><span class="mini-name">${escapeHtml(n.title)}</span><span class="mono hint">${fmtDate(n.createdAt)}</span></div>`).join('')}</div>` : '<div class="hint">Новостей пока нет.</div>');
-  } catch (err){ console.error('Новости', err); set('dashNews', '<div class="hint">Не удалось загрузить новости.</div>'); }
+  const watch = unsub => { if (typeof unsub === 'function') _dashboardUnsubs.push(unsub); };
+
+  watch(db.collection('news').where('deleted', '==', false).limit(30).onSnapshot(snap => {
+    const news = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0)).slice(0, 3);
+    set('dashNews', news.length
+      ? `<div class="mini-list">${news.map(n => `<div class="mini-row" data-tab="news"><span class="mini-name">${escapeHtml(n.title)}</span><span class="mono hint">${fmtDate(n.createdAt)}</span></div>`).join('')}</div>`
+      : '<div class="hint">Новостей пока нет.</div>');
+  }, err => {
+    console.error('Новости', err);
+    set('dashNews', '<div class="hint">Не удалось загрузить новости.</div>');
+  }));
 
   if (canManageDuties()){
-    try {
-      let q = db.collection('dutyAssignments').where('checkerId', '==', state.user.uid).where('deleted', '==', false);
-      if (!isSiteAdmin()) q = q.where('factionId', 'in', curatedFactions().slice(0, 30));
-      const snap = curatedFactions().length || isSiteAdmin() ? await q.limit(50).get() : { docs: [] };
-      const mine = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.status !== 'Выполнено' && d.status !== 'Отменено').sort((a, b) => String(a.dateTo).localeCompare(String(b.dateTo))).slice(0, 5);
-      set('dashDuties', mine.length ? `<div class="mini-list">${mine.map(d => `<div class="mini-row" data-tab="duties"><span class="mini-name">${escapeHtml(d.name)} <span class="hint">${escapeHtml(d.factionName)}</span></span><span class="badge ${dutyTone(effectiveDutyStatus(d))}">${escapeHtml(effectiveDutyStatus(d))}</span></div>`).join('')}</div>` : '<div class="hint">Активных обязанностей нет.</div>');
-    } catch (err){ console.error('Обязанности', err); set('dashDuties', '<div class="hint">Не удалось загрузить обязанности.</div>'); }
+    const factionIds = getFactionsForDuties();
+    const weekStart = getWeekStart(getMoscowNow());
+    const dutyDocs = {};
+    const renderMine = () => {
+      const mine = [];
+      Object.entries(dutyDocs).forEach(([fid, data]) => {
+        (data?.tasks || []).forEach(task => {
+          const assignees = Array.isArray(task.assignees) ? task.assignees : [];
+          const completedBy = Array.isArray(task.completedBy) ? task.completedBy : [];
+          if (!assignees.includes(state.user?.uid) || completedBy.includes(state.user?.uid)) return;
+          mine.push({
+            fid,
+            name: task.name || 'Без названия',
+            status: getTaskStatus(task, weekStart)
+          });
+        });
+      });
+      mine.sort((a, b) => String(a.fid).localeCompare(String(b.fid), 'ru') || String(a.name).localeCompare(String(b.name), 'ru'));
+      set('dashDuties', mine.length
+        ? `<div class="mini-list">${mine.slice(0, 6).map(d => `<div class="mini-row" data-tab="duties"><span class="mini-name">${escapeHtml(d.name)} <span class="hint">${factionChipHtml(d.fid)}</span></span><span class="badge ${statusBadgeClass(d.status)}">${escapeHtml(d.status)}</span></div>`).join('')}</div>${mine.length > 6 ? `<div class="hint">и ещё ${mine.length - 6}</div>` : ''}`
+        : '<div class="hint">Активных обязанностей нет.</div>');
+    };
+
+    if (!factionIds.length) {
+      set('dashDuties', '<div class="hint">Курируемые фракции не назначены.</div>');
+    } else {
+      factionIds.forEach(fid => {
+        const docId = `${fid}_${weekStart.toISOString().slice(0,10)}`;
+        watch(db.collection('dutyWeeks').doc(docId).onSnapshot(snap => {
+          dutyDocs[fid] = snap.exists ? snap.data() : null;
+          renderMine();
+        }, err => {
+          console.error('Обязанности', err);
+          set('dashDuties', '<div class="hint">Не удалось загрузить обязанности.</div>');
+        }));
+      });
+    }
   }
 
   if (isSiteAdmin()){
-    try {
-      const snap = await db.collection('supportTickets').where('deleted', '==', false).where('status', '==', 'На рассмотрении').limit(20).get();
-      const t = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      set('dashTickets', t.length ? `<div class="mini-list">${t.slice(0, 5).map(x => `<div class="mini-row" data-tab="support"><span class="mini-name"><span class="chip chip-sm">${escapeHtml(TICKET_TYPES[x.type] || x.type)}</span> ${escapeHtml(x.title)}</span><span class="mono hint">${fmtDate(x.createdAt)}</span></div>`).join('')}</div>${t.length > 5 ? `<div class="hint">и ещё ${t.length - 5}</div>` : ''}` : '<div class="hint">Все заявки обработаны.</div>');
-    } catch (err){ console.error('Поддержка', err); set('dashTickets', '<div class="hint">Не удалось загрузить заявки.</div>'); }
+    watch(db.collection('pendingUsers').onSnapshot(snap => {
+      const pending = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
+        .sort((a,b) => (toDate(b.attemptedAt)?.getTime() || 0) - (toDate(a.attemptedAt)?.getTime() || 0));
+      const kpiValue = document.getElementById('dashRealtimeKpiValue');
+      const kpiText = document.getElementById('dashRealtimeKpiText');
+      if (kpiValue) kpiValue.textContent = String(pending.length);
+      if (kpiText) kpiText.textContent = pending.length ? 'требуют решения' : 'очередь пуста';
+      set('dashAccess', pending.length
+        ? `<div class="mini-list">${pending.slice(0, 5).map(p => `<div class="mini-row" data-tab="pending"><span class="mini-name">${escapeHtml(cleanDiscordGuildNickname(p.displayName || p.discordGuildNickname || p.discordUsername || p.email || 'Без имени'))}</span><span class="mono hint">${fmtDateTime(p.attemptedAt)}</span></div>`).join('')}</div>${pending.length > 5 ? `<div class="hint">и ещё ${pending.length - 5}</div>` : ''}`
+        : '<div class="hint">Нет ожидающих подтверждения.</div>');
+    }, err => {
+      console.error('Доступ', err);
+      set('dashAccess', '<div class="hint">Не удалось загрузить заявки доступа.</div>');
+    }));
+
+    watch(db.collection('supportTickets')
+      .where('deleted', '==', false)
+      .where('status', '==', 'На рассмотрении')
+      .limit(20)
+      .onSnapshot(snap => {
+        const t = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a,b) => (toDate(b.createdAt)?.getTime() || 0) - (toDate(a.createdAt)?.getTime() || 0));
+        set('dashTickets', t.length
+          ? `<div class="mini-list">${t.slice(0, 5).map(x => `<div class="mini-row" data-tab="support"><span class="mini-name"><span class="chip chip-sm">${escapeHtml(TICKET_TYPES[x.type] || x.type)}</span> ${escapeHtml(x.title)}</span><span class="mono hint">${fmtDate(x.createdAt)}</span></div>`).join('')}</div>${t.length > 5 ? `<div class="hint">и ещё ${t.length - 5}</div>` : ''}`
+          : '<div class="hint">Все заявки обработаны.</div>');
+      }, err => {
+        console.error('Поддержка', err);
+        set('dashTickets', '<div class="hint">Не удалось загрузить заявки.</div>');
+      }));
   }
 
   if (canAccessTab('audit')){
-    try {
-      const snap = await db.collection('auditLog').orderBy('timestamp', 'desc').limit(6).get();
+    watch(db.collection('auditLog').orderBy('timestamp', 'desc').limit(6).onSnapshot(snap => {
       const a = snap.docs.map(d => d.data());
-      set('dashAudit', a.length ? `<div class="mini-list">${a.map(x => `<div class="mini-row" data-tab="audit"><span class="mini-name"><b>${escapeHtml(x.nickname || x.email)}</b> ${escapeHtml(x.action)}</span><span class="mono hint">${fmtDateTime(x.timestamp)}</span></div>`).join('')}</div>` : '<div class="hint">Действий пока нет.</div>');
-    } catch (err){ console.error('Журнал', err); set('dashAudit', '<div class="hint">Не удалось загрузить журнал.</div>'); }
+      set('dashAudit', a.length
+        ? `<div class="mini-list">${a.map(x => `<div class="mini-row" data-tab="audit"><span class="mini-name"><b>${escapeHtml(x.nickname || x.email)}</b> ${escapeHtml(x.action)}</span><span class="mono hint">${fmtDateTime(x.timestamp)}</span></div>`).join('')}</div>`
+        : '<div class="hint">Действий пока нет.</div>');
+    }, err => {
+      console.error('Журнал', err);
+      set('dashAudit', '<div class="hint">Не удалось загрузить журнал.</div>');
+    }));
   }
 }
+
+window.stopDashboardRealtime = stopDashboardRealtime;

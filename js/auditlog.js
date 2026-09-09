@@ -1,34 +1,35 @@
 let _audit = [];
-let _auditCursor = null;
-let _auditHasMore = false;
 let _auditSearch = '';
+let _auditUnsub = null;
 
-async function loadAudit(more){
+async function loadAudit(){
   const root = document.getElementById('auditRoot');
-  if (!canAccessTab('audit')){ root.innerHTML = lockedState('Раздел доступен администратору сайта.'); return; }
-  if (!more){
-    _audit = [];
-    _auditCursor = null;
-    root.innerHTML = `
-      <div class="toolbar">
-        <div class="toolbar-note" id="auditNote">Загрузка…</div>
-        <label class="search-box"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="auditSearch" placeholder="Кто, что, объект" value="${escapeHtml(_auditSearch)}" autocomplete="off"></label>
-      </div>
-      <div id="auditList">${skeletonRows(6)}</div>`;
-    document.getElementById('auditSearch').addEventListener('input', debounce(e => { _auditSearch = e.target.value; renderAudit(); }, 150));
+  if (!canAccessTab('audit')){
+    if (_auditUnsub) { _auditUnsub(); _auditUnsub = null; }
+    root.innerHTML = lockedState('У вас нет доступа к журналу действий.');
+    return;
   }
-  try {
-    let q = db.collection('auditLog').orderBy('timestamp', 'desc').limit(PAGE_SIZE);
-    if (_auditCursor) q = q.startAfter(_auditCursor);
-    const snap = await q.get();
-    _auditCursor = snap.docs[snap.docs.length - 1] || _auditCursor;
-    _auditHasMore = snap.docs.length === PAGE_SIZE;
-    _audit = _audit.concat(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+  if (_auditUnsub) { _auditUnsub(); _auditUnsub = null; }
+  root.innerHTML = `
+    <div class="toolbar audit-toolbar">
+      <div class="toolbar-note" id="auditNote">Загрузка…</div>
+      <label class="search-box"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="auditSearch" placeholder="Кто, что, объект" value="${escapeHtml(_auditSearch)}" autocomplete="off"></label>
+    </div>
+    <div id="auditList">${skeletonRows(6)}</div>`;
+  document.getElementById('auditSearch').addEventListener('input', debounce(e => {
+    _auditSearch = e.target.value;
     renderAudit();
-  } catch (err){
+  }, 120));
+
+  _auditUnsub = db.collection('auditLog').orderBy('timestamp', 'desc').limit(250).onSnapshot(snap => {
+    _audit = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderAudit();
+  }, err => {
     console.error('Журнал', err);
-    document.getElementById('auditList').innerHTML = errorState('Не удалось загрузить журнал. ' + humanError(err), 'retry-audit');
-  }
+    const list = document.getElementById('auditList');
+    if (list) list.innerHTML = errorState('Не удалось загрузить журнал. ' + humanError(err), 'retry-audit');
+  });
 }
 
 function auditValue(v){
@@ -39,6 +40,17 @@ function auditValue(v){
   return String(v);
 }
 
+function auditDiffHtml(a){
+  if (!a.oldValue && !a.newValue) return '<span class="hint">—</span>';
+  const oldText = a.oldValue ? auditValue(a.oldValue) : '';
+  const newText = a.newValue ? auditValue(a.newValue) : '';
+  return `<div class="audit-diff-cell">
+    ${oldText ? `<span class="diff-old">${escapeHtml(oldText)}</span>` : ''}
+    ${oldText && newText ? '<span class="audit-arrow">→</span>' : ''}
+    ${newText ? `<span class="diff-new">${escapeHtml(newText)}</span>` : ''}
+  </div>`;
+}
+
 function renderAudit(){
   const el = document.getElementById('auditList');
   if (!el) return;
@@ -47,16 +59,26 @@ function renderAudit(){
     (a.nickname || '').toLowerCase().includes(q) || (a.email || '').toLowerCase().includes(q) ||
     (a.action || '').toLowerCase().includes(q) || (a.objectType || '').toLowerCase().includes(q) ||
     (a.objectId || '').toLowerCase().includes(q) || factionName(a.faction).toLowerCase().includes(q)) : _audit;
-  document.getElementById('auditNote').textContent = `Записей: ${_audit.length}${_auditHasMore ? '+' : ''}`;
-  if (!rows.length){ el.innerHTML = emptyState(_audit.length ? 'Ничего не найдено.' : 'Журнал пока пуст.'); return; }
-  el.innerHTML = `<div class="timeline">${rows.map(a => `
-    <div class="tl-item">
-      <div class="tl-time mono">${fmtDateTime(a.timestamp)}</div>
-      <div class="tl-body">
-        <div class="tl-who"><b>${escapeHtml(a.nickname || a.email)}</b> <span class="hint">${escapeHtml(ROLES[a.systemRole] || a.systemRole)}${a.faction ? ' · ' + escapeHtml(factionName(a.faction)) : ''} · ${escapeHtml(levelLabel(a.serverLevel))}</span></div>
-        <div class="tl-action">${escapeHtml(a.action)}${a.additionalInfo ? ` <span class="hint">— ${escapeHtml(a.additionalInfo)}</span>` : ''}</div>
-        ${a.oldValue || a.newValue ? `<div class="tl-diff">${a.oldValue ? `<span class="diff-old">${escapeHtml(auditValue(a.oldValue))}</span>` : ''}${a.oldValue && a.newValue ? ' → ' : ''}${a.newValue ? `<span class="diff-new">${escapeHtml(auditValue(a.newValue))}</span>` : ''}</div>` : ''}
-        <div class="tl-obj mono">${escapeHtml(a.objectType || '')}${a.objectId ? ' · ' + escapeHtml(a.objectId) : ''}</div>
-      </div>
-    </div>`).join('')}</div>${_auditHasMore && !q ? '<button class="btn btn-block" data-action="audit-more">Загрузить ещё</button>' : ''}`;
+  const note = document.getElementById('auditNote');
+  if (note) note.textContent = `Записей: ${_audit.length}`;
+  if (!rows.length){
+    el.innerHTML = emptyState(_audit.length ? 'Ничего не найдено.' : 'Журнал пока пуст.');
+    return;
+  }
+
+  el.innerHTML = `<div class="card table-card table-scroll-shell audit-table-card">
+    <table class="data-table audit-table">
+      <thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th><th>Изменения</th><th>Объект</th></tr></thead>
+      <tbody>${rows.map(a => `
+        <tr>
+          <td class="mono audit-date">${fmtDateTime(a.timestamp)}</td>
+          <td>
+            <div class="audit-user"><b>${escapeHtml(a.nickname || a.email || '—')}</b><span class="hint">${escapeHtml(ROLES[a.systemRole] || a.systemRole || '—')}${a.serverLevel ? ' · ' + escapeHtml(levelLabel(a.serverLevel)) : ''}</span>${a.faction ? factionChipHtml(a.faction) : ''}</div>
+          </td>
+          <td><div class="audit-action">${escapeHtml(a.action || '—')}</div>${a.additionalInfo ? `<div class="hint audit-extra">${escapeHtml(a.additionalInfo)}</div>` : ''}</td>
+          <td>${auditDiffHtml(a)}</td>
+          <td class="mono audit-object">${escapeHtml(a.objectType || '—')}${a.objectId ? `<span>${escapeHtml(a.objectId)}</span>` : ''}</td>
+        </tr>`).join('')}</tbody>
+    </table>
+  </div>`;
 }

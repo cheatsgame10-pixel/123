@@ -11,6 +11,7 @@ let _editingComment = null;
 let _supportUnsub = null;
 let _globalUnreadUnsub = null;
 let _notifiedTickets = new Set();
+let _globalNotifiedTickets = new Set();
 let _editCommentStatus = '';
 let _isSubmitting = false;
 let _ticketsLimit = 20;
@@ -20,8 +21,8 @@ let _supportStatusFilter = '';
 let _supportTypeFilter = '';
 
 function initGlobalSupportUnreadListener(){
-  if (!isSignedIn()) return;
-  if (_globalUnreadUnsub) _globalUnreadUnsub();
+  if (_globalUnreadUnsub) { _globalUnreadUnsub(); _globalUnreadUnsub = null; }
+  if (!isSignedIn()) { _unreadCount = 0; renderUnreadBadge(); return; }
   let query;
   if (isSiteAdmin()) {
     query = db.collection('supportTickets')
@@ -35,14 +36,22 @@ function initGlobalSupportUnreadListener(){
     let count = 0;
     snap.forEach(doc => {
       const data = doc.data();
-      if (isSiteAdmin()) {
-        if (data.status === 'В обработке' && data.archived !== true) count++;
+      const key = `${isSiteAdmin() ? 'admin' : 'user'}:${doc.id}`;
+      const unread = isSiteAdmin()
+        ? (data.adminUnread === true || (data.adminUnread == null && data.status === 'В обработке')) && data.archived !== true
+        : data.userUnread === true;
+      if (unread) {
+        count++;
+        if (!_globalNotifiedTickets.has(key)) {
+          _globalNotifiedTickets.add(key);
+          toast(isSiteAdmin() ? 'Новое сообщение в поддержке' : 'У вас есть новый ответ от администратора');
+        }
       } else {
-        if (data.userUnread === true) count++;
+        _globalNotifiedTickets.delete(key);
       }
     });
     _unreadCount = count;
-    updateUnreadBadge();
+    renderUnreadBadge();
   }, err => {
     console.error('Глобальный слушатель непрочитанных', err);
   });
@@ -53,6 +62,7 @@ function stopGlobalSupportUnreadListener(){
     _globalUnreadUnsub();
     _globalUnreadUnsub = null;
   }
+  _globalNotifiedTickets.clear();
 }
 
 function openSupportModal(){
@@ -111,7 +121,8 @@ function renderSupportModal(){
     _ticketsLimit = 20;
     _hasMoreTickets = false;
     renderSupportContent();
-    if (!isSiteAdmin()) markTicketsAsRead();
+    if (isSiteAdmin()) markAdminTicketsAsRead();
+    else markTicketsAsRead();
     startSupportListeners();
   });
   const archiveBtn = document.getElementById('supportTabArchive');
@@ -143,6 +154,9 @@ function updateSupportTabs(){
 function renderSupportContent(){
   const container = document.getElementById('supportContent');
   if (!container) return;
+  const supportModal = container.closest('.modal.support-modal');
+  supportModal?.classList.toggle('support-new-modal', _supportTab === 'new');
+  container.className = _supportTab === 'new' ? 'support-content support-content-scroll' : 'support-content support-content-list';
   if (_supportTab === 'new') {
     const optionsHtml = [
       { value: 'bug', label: 'Баг' },
@@ -159,7 +173,7 @@ function renderSupportContent(){
       </div>
       <div class="field">
         <label for="tTitle">Заголовок</label>
-        <input type="text" id="tTitle" maxlength="120" value="${escapeHtml(_titleInput)}" placeholder="${escapeHtml(titlePlaceholder)}">
+        <input type="text" id="tTitle" maxlength="20" value="${escapeHtml(_titleInput)}" placeholder="${escapeHtml(titlePlaceholder)}">
       </div>
       <div class="field">
         <label for="tDesc">Описание</label>
@@ -190,7 +204,7 @@ function renderSupportContent(){
       });
       display.addEventListener('click', (e) => {
         e.stopPropagation();
-        options.classList.toggle('open');
+        toggleDropdownOptions(options);
       });
     }
 
@@ -207,23 +221,25 @@ function renderSupportContent(){
     });
   } else {
     container.innerHTML = `
-      <div class="support-filters">
-        <input type="text" id="supportSearchInput" placeholder="Поиск..." value="${escapeHtml(_supportSearch)}">
-        <select id="supportStatusFilter">
-          <option value="">Все статусы</option>
-          <option value="В обработке" ${_supportStatusFilter === 'В обработке' ? 'selected' : ''}>В обработке</option>
-          <option value="Уточнение" ${_supportStatusFilter === 'Уточнение' ? 'selected' : ''}>Уточнение</option>
-          <option value="Рассмотрено" ${_supportStatusFilter === 'Рассмотрено' ? 'selected' : ''}>Рассмотрено</option>
-          <option value="Отклонено" ${_supportStatusFilter === 'Отклонено' ? 'selected' : ''}>Отклонено</option>
-        </select>
-        <select id="supportTypeFilter">
-          <option value="">Все типы</option>
-          <option value="bug" ${_supportTypeFilter === 'bug' ? 'selected' : ''}>Баг</option>
-          <option value="idea" ${_supportTypeFilter === 'idea' ? 'selected' : ''}>Предложение</option>
-        </select>
+      <div class="support-list-shell">
+        <div class="support-filters">
+          <input type="text" id="supportSearchInput" placeholder="Поиск..." value="${escapeHtml(_supportSearch)}">
+          <select id="supportStatusFilter">
+            <option value="">Все статусы</option>
+            <option value="В обработке" ${_supportStatusFilter === 'В обработке' ? 'selected' : ''}>В обработке</option>
+            <option value="Уточнение" ${_supportStatusFilter === 'Уточнение' ? 'selected' : ''}>Уточнение</option>
+            <option value="Рассмотрено" ${_supportStatusFilter === 'Рассмотрено' ? 'selected' : ''}>Рассмотрено</option>
+            <option value="Отклонено" ${_supportStatusFilter === 'Отклонено' ? 'selected' : ''}>Отклонено</option>
+          </select>
+          <select id="supportTypeFilter">
+            <option value="">Все типы</option>
+            <option value="bug" ${_supportTypeFilter === 'bug' ? 'selected' : ''}>Баг</option>
+            <option value="idea" ${_supportTypeFilter === 'idea' ? 'selected' : ''}>Предложение</option>
+          </select>
+        </div>
+        <div id="ticketsList" class="support-ticket-list"><div class="hint">Загрузка...</div></div>
+        <div id="loadMoreContainer" class="support-load-more"></div>
       </div>
-      <div id="ticketsList"><div class="hint">Загрузка...</div></div>
-      <div id="loadMoreContainer"></div>
     `;
 
     document.getElementById('supportSearchInput').addEventListener('input', debounce(e => {
@@ -314,16 +330,7 @@ function startSupportListeners(){
       markTicketsAsRead();
     }
 
-    if (!isSiteAdmin()) {
-      _tickets.forEach(t => {
-        if (t.userUnread === true && !_notifiedTickets.has(t.id)) {
-          _notifiedTickets.add(t.id);
-          toast('У вас есть новый ответ от администратора');
-        } else if (t.userUnread === false) {
-          _notifiedTickets.delete(t.id);
-        }
-      });
-    }
+    if (isSiteAdmin() && _supportTab === 'history') markAdminTicketsAsRead();
   }, err => {
     console.error('Подписка на поддержку', err);
     const container = document.getElementById('ticketsList');
@@ -452,6 +459,7 @@ async function createTicket(){
       status: 'В обработке',
       comments: [],
       userUnread: false,
+      adminUnread: true,
       archived: false,
       authorId: state.user.uid,
       authorEmail: state.user.email,
@@ -564,7 +572,7 @@ function openReplyModal(ticket, isAdmin){
       });
       display.addEventListener('click', (e) => {
         e.stopPropagation();
-        options.classList.toggle('open');
+        toggleDropdownOptions(options);
         if (options.classList.contains('open')) {
           const rect = display.getBoundingClientRect();
           options.style.position = 'fixed';
@@ -612,7 +620,8 @@ async function sendReply(ticket, text, isAdmin, newStatus){
         status: isAdmin ? newStatus : 'Уточнение',
         archived: isAdmin ? archived : data.archived || false,
         updatedAt: FieldValue.serverTimestamp(),
-        userUnread: isAdmin ? true : false
+        userUnread: isAdmin ? true : false,
+        adminUnread: isAdmin ? false : true
       });
     });
     toast('Ответ отправлен');
@@ -674,7 +683,7 @@ function openEditCommentModal(ticket, commentId){
       });
       display.addEventListener('click', (e) => {
         e.stopPropagation();
-        options.classList.toggle('open');
+        toggleDropdownOptions(options);
         if (options.classList.contains('open')) {
           const rect = display.getBoundingClientRect();
           options.style.position = 'fixed';
@@ -749,43 +758,37 @@ function deleteComment(ticket, commentId){
   });
 }
 
-async function updateUnreadBadge(){
-  if (!isSignedIn()) return;
+function supportUnreadLabel(count) {
+  const n = Math.max(0, Number(count) || 0);
+  return n >= 10 ? '9+' : String(n);
+}
+
+function renderUnreadBadge(){
+  const count = Math.max(0, Number(_unreadCount) || 0);
+  const label = supportUnreadLabel(count);
   const badgeTop = document.getElementById('supportUnreadBadge');
   const badgeTab = document.getElementById('supportHistoryBadge');
-  if (!badgeTop && !badgeTab) return;
-  try {
-    let count = 0;
-    let query;
-    if (isSiteAdmin()) {
-      query = db.collection('supportTickets')
-        .where('deleted', '==', false);
-    } else {
-      query = db.collection('supportTickets')
-        .where('authorId', '==', state.user.uid)
-        .where('deleted', '==', false);
+  [badgeTop, badgeTab].forEach(badge => {
+    if (!badge) return;
+    badge.textContent = label;
+    badge.hidden = count === 0;
+    badge.setAttribute('aria-label', count ? `${count} непрочитанных заявок` : 'Нет непрочитанных заявок');
+  });
+}
+
+function updateUnreadBadge(){
+  // Значение обновляет initGlobalSupportUnreadListener через Firestore onSnapshot.
+  // Здесь только синхронизируем уже известный realtime-счётчик с текущим DOM.
+  renderUnreadBadge();
+}
+
+function markAdminTicketsAsRead(){
+  if (!isSignedIn() || !isSiteAdmin()) return;
+  _tickets.forEach(t => {
+    if (t.adminUnread === true || (t.adminUnread == null && t.status === 'В обработке')) {
+      db.collection('supportTickets').doc(t.id).update({ adminUnread: false }).catch(()=>{});
     }
-    const snap = await query.get();
-    snap.forEach(doc => {
-      const data = doc.data();
-      if (isSiteAdmin()) {
-        if (data.status === 'В обработке' && data.archived !== true) count++;
-      } else {
-        if (data.userUnread === true) count++;
-      }
-    });
-    _unreadCount = count;
-    if (badgeTop) {
-      badgeTop.textContent = count;
-      badgeTop.hidden = count === 0;
-    }
-    if (badgeTab) {
-      badgeTab.textContent = count;
-      badgeTab.hidden = count === 0;
-    }
-  } catch (err) {
-    console.error('Не удалось обновить счётчик', err);
-  }
+  });
 }
 
 function markTicketsAsRead(){
@@ -795,7 +798,6 @@ function markTicketsAsRead(){
       db.collection('supportTickets').doc(t.id).update({ userUnread: false }).catch(()=>{});
     }
   });
-  updateUnreadBadge();
 }
 
 function ticketStatusClass(status){

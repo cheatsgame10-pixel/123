@@ -1,21 +1,40 @@
 let _forumTimer = null;
 let _booted = false;
 
+
+function stopAuthenticatedRealtimeListeners(){
+  try { if (typeof stopGlobalSupportUnreadListener === 'function') stopGlobalSupportUnreadListener(); } catch (_) {}
+  try { if (typeof stopSupportListeners === 'function') stopSupportListeners(); } catch (_) {}
+  try { if (typeof stopDashboardRealtime === 'function') stopDashboardRealtime(); } catch (_) {}
+  try { if (typeof stopPresence === 'function') stopPresence(); } catch (_) {}
+  try { if (typeof stopUsersSyncJobListener === 'function') stopUsersSyncJobListener(); } catch (_) {}
+  try { if (typeof _leaderUsersUnsub !== 'undefined' && _leaderUsersUnsub) { _leaderUsersUnsub(); _leaderUsersUnsub = null; } } catch (_) {}
+  try { if (typeof _newsUnsub !== 'undefined' && _newsUnsub) { _newsUnsub(); _newsUnsub = null; } } catch (_) {}
+  try { if (typeof _auditUnsub !== 'undefined' && _auditUnsub) { _auditUnsub(); _auditUnsub = null; } } catch (_) {}
+  try { if (typeof _usersUnsub !== 'undefined' && _usersUnsub) { _usersUnsub(); _usersUnsub = null; } } catch (_) {}
+  try { if (typeof _pendingUsersUnsub !== 'undefined' && _pendingUsersUnsub) { _pendingUsersUnsub(); _pendingUsersUnsub = null; } } catch (_) {}
+  try { if (typeof _usersPresenceUnsub !== 'undefined' && _usersPresenceUnsub) { _usersPresenceUnsub(); _usersPresenceUnsub = null; } } catch (_) {}
+  try {
+    if (typeof _unsubscribers !== 'undefined') { _unsubscribers.forEach(unsub => { try { unsub(); } catch (_) {} }); _unsubscribers = []; }
+    if (typeof _curatorUsersUnsub !== 'undefined' && _curatorUsersUnsub) { _curatorUsersUnsub(); _curatorUsersUnsub = null; }
+    if (typeof _dutyTemplatesUnsub !== 'undefined' && _dutyTemplatesUnsub) { _dutyTemplatesUnsub(); _dutyTemplatesUnsub = null; }
+    if (typeof _dutyTaskPoolUnsub !== 'undefined' && _dutyTaskPoolUnsub) { _dutyTaskPoolUnsub(); _dutyTaskPoolUnsub = null; }
+    if (typeof _dutyStatsUnsub !== 'undefined' && _dutyStatsUnsub) { _dutyStatsUnsub(); _dutyStatsUnsub = null; }
+  } catch (_) {}
+  try { if (typeof _recoveryUnsubs !== 'undefined') { _recoveryUnsubs.forEach(unsub => { try { unsub(); } catch (_) {} }); _recoveryUnsubs = []; } } catch (_) {}
+}
 const TAB_LOADERS = {
   dashboard: () => renderDashboard(),
   leaders: () => { renderLeaders(); fetchForum(false); },
   archive: () => loadArchive(),
   news: () => loadNews(),
-  reports: () => { initReportForm(); if (canViewReports()) loadReports(); },
   duties: () => loadDuties(),
-  nickcheck: () => renderNickcheck(),
+  'faction-checks': () => loadFactionChecks(),
   pending: () => loadPendingUsers(),
   users: () => loadUsers(),
   factions: () => renderFactionsSection(),
   audit: () => loadAudit(false),
-  recovery: () => loadRecovery(),
-  'cheat-report': () => renderCheatReport(),
-  'cheat-history': () => renderCheatHistory()
+  recovery: () => loadRecovery()
 };
 
 function switchTab(tab){
@@ -24,17 +43,32 @@ function switchTab(tab){
     tab = isSignedIn() ? 'dashboard' : 'leaders';
   }
   if (tab === 'profile') tab = isSignedIn() ? 'dashboard' : 'leaders';
-  const changed = state.tab !== tab;
+  const previousTab = state.tab;
+  const changed = previousTab !== tab;
+  if (previousTab === 'dashboard' && tab !== 'dashboard' && typeof stopDashboardRealtime === 'function') stopDashboardRealtime();
   state.tab = tab;
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
   document.querySelectorAll('#sidebar .nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  if (changed || tab === 'duties') renderSidebar();
   setPageTitle(tab);
   window.scrollTo({ top: 0 });
   if (TAB_LOADERS[tab]) TAB_LOADERS[tab]();
   if (changed) visitPage(tab);
 }
 
+function syncGuestView(){
+  const signedIn = isSignedIn();
+  const gate = document.getElementById('guestGate');
+  const shell = document.querySelector('.shell');
+  if (gate) gate.hidden = signedIn;
+  if (shell) shell.hidden = !signedIn;
+  document.body.classList.toggle('guest-mode', !signedIn);
+}
+
 async function onSessionChanged(full){
+  if (!isSignedIn()) stopAuthenticatedRealtimeListeners();
+  initTheme();
+  syncGuestView();
   renderSidebar();
   renderTopbar();
   if (!_booted) return;
@@ -54,35 +88,26 @@ function handleAction(el){
   const id = el.dataset.id;
   const type = el.dataset.type;
   const map = {
-    'login': () => login(),
-    'logout': () => logout(),
+    'login': () => login().catch(()=>{}),
+    'logout': () => confirmLogout(),
+    'users-sync': () => syncAllUsersFromDiscord(),
+    'discord-refresh': () => login().catch(()=>{}),
+    'users-sync-cancel': () => cancelUsersDiscordSync(),
     'modal-close': () => { if (typeof stopSupportListeners === 'function') stopSupportListeners(); closeModal(); },
     'retry-forum': () => { renderLeadersSkeleton(); fetchForum(true); },
     'retry-archive': () => loadArchive(),
-    'retry-reports': () => loadReports(),
     'retry-users': () => loadUsers(),
     'retry-news': () => loadNews(),
     'retry-duties': () => loadDuties(),
     'retry-audit': () => loadAudit(false),
     'retry-recovery': () => loadRecovery(),
-    'retry-cheat-history': () => loadCheatHistory(),
     'archive-edit': () => openArchiveModal(id),
     'archive-save': () => saveArchive(id),
     'archive-delete': () => deleteArchive(id),
     'archive-restore': () => restoreArchive(id),
-    'report-edit': () => openReportEditModal(id),
-    'report-edit-save': () => saveReportComment(id),
-    'report-delete': () => deleteReport(id),
-    'report-restore': () => restoreReport(id),
-    'report-curator-comment': () => openCuratorCommentModal(id),
-    'report-curator-comment-save': () => saveCuratorComment(id),
-    'report-mark-viewed': () => markReportViewed(id),
-    'reports-more': () => loadReports(true),
     'user-edit': () => openUserModal(id),
     'user-save': () => saveUser(id),
     'user-revoke': () => revokeAdmin(id),
-    'user-rename': () => openRenameModal(id),
-    'user-rename-save': () => saveRename(id),
     'user-delete': () => deleteUser(id),
     'user-restore': () => restoreUser(id),
     'faction-create': () => openFactionModal(null),
@@ -104,8 +129,6 @@ function handleAction(el){
     'duty-type-add': () => addDutyType(),
     'duty-type-toggle': () => toggleDutyType(id),
     'duty-edit-template': () => openDutyTemplateModal(el.dataset.faction),
-    'duty-template-save': () => saveDutyTemplate(el.dataset.id),
-    'audit-more': () => loadAudit(true),
     'versions': () => openVersionsModal(type, id),
     'version-restore': () => restoreVersion(type, id, el.dataset.version),
     'recover': () => recoverRecord(type, id),
@@ -117,16 +140,47 @@ function handleAction(el){
 
 function bindEvents(){
   document.addEventListener('click', e => {
+    const dropdownDisplay = e.target.closest('.dropdown-display');
+    if (dropdownDisplay) {
+      const currentOptions = dropdownDisplay.parentElement?.querySelector(':scope > .dropdown-options') || null;
+      closeAllDropdowns(currentOptions);
+    } else if (!e.target.closest('.custom-dropdown') && !e.target.closest('.theme-control')) {
+      closeAllDropdowns();
+    }
+
     const actionEl = e.target.closest('[data-action]');
     if (actionEl){ handleAction(actionEl); return; }
+
+    const dutySub = e.target.closest('[data-duty-subtab]');
+    if (dutySub) {
+      _dutySubTab = dutySub.dataset.dutySubtab === 'stats' ? 'stats' : 'duties';
+      switchTab('duties');
+      renderSidebar();
+      if (window.innerWidth <= 840) toggleSidebar(false);
+      return;
+    }
+
+    const factionCheckSub = e.target.closest('[data-faction-check-subtab]');
+    if (factionCheckSub) {
+      _factionCheckSubTab = factionCheckSub.dataset.factionCheckSubtab === 'nicknames' ? 'nicknames' : 'pgf';
+      switchTab('faction-checks');
+      renderSidebar();
+      if (window.innerWidth <= 840) toggleSidebar(false);
+      return;
+    }
+
     const tabEl = e.target.closest('[data-tab]');
-    if (tabEl){ switchTab(tabEl.dataset.tab); }
+    if (tabEl){
+      switchTab(tabEl.dataset.tab);
+      if (window.innerWidth <= 840 && tabEl.dataset.tab !== 'duties') toggleSidebar(false);
+    }
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (typeof stopSupportListeners === 'function') stopSupportListeners();
       closeConfirm(false);
       closeModal();
+      if (window.innerWidth <= 840) toggleSidebar(false);
     }
     if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-tab][role="button"]')){ e.preventDefault(); switchTab(e.target.dataset.tab); }
   });
@@ -148,21 +202,13 @@ function bindEvents(){
   document.getElementById('archiveAddBtn').addEventListener('click', () => openArchiveModal(null));
   document.getElementById('archiveShowDeleted').addEventListener('change', e => { state.archiveShowDeleted = e.target.checked; loadArchive(); });
 
-  document.getElementById('reportFaction').addEventListener('change', updateReportLeaderName);
-  document.getElementById('saveReportBtn').addEventListener('click', saveReport);
-  ['reportFilterFaction', 'reportFilterStart', 'reportFilterEnd'].forEach(id => document.getElementById(id).addEventListener('change', renderReports));
-  document.getElementById('reportFilterReset').addEventListener('click', () => {
-    ['reportFilterFaction', 'reportFilterStart', 'reportFilterEnd'].forEach(id => document.getElementById(id).value = '');
-    renderReports();
-  });
-  document.getElementById('reportsShowDeleted').addEventListener('change', e => { state.reportsShowDeleted = e.target.checked; renderReports(); });
 
   document.getElementById('confirmOk').addEventListener('click', () => closeConfirm(true));
   document.getElementById('confirmCancel').addEventListener('click', () => closeConfirm(false));
   document.getElementById('confirmOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeConfirm(false); });
   document.getElementById('confirmReason').addEventListener('keydown', e => { if (e.key === 'Enter') closeConfirm(true); });
   document.getElementById('confirmTyped').addEventListener('keydown', e => { if (e.key === 'Enter') closeConfirm(true); });
-  document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+  document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) { if (typeof stopSupportListeners === 'function' && document.querySelector('.modal.support-modal')) stopSupportListeners(); closeModal(); } });
 
   window.addEventListener('offline', () => toast('Нет соединения с интернетом. Данные могут быть неактуальны.', 'error'));
   window.addEventListener('online', () => { toast('Соединение восстановлено'); fetchForum(false); });
@@ -174,10 +220,14 @@ function bindEvents(){
 function initSidebarState(){
   const isMobile = window.innerWidth <= 840;
   document.body.classList.toggle('sidebar-collapsed', isMobile);
+  document.body.classList.remove('sidebar-mobile-open');
+  document.getElementById('menuBtn')?.setAttribute('aria-expanded', String(!isMobile));
 }
 
 async function boot(){
   bindEvents();
+  initTheme();
+  syncGuestView();
   renderSidebar();
   renderTopbar();
   initSidebarState();

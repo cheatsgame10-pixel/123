@@ -60,7 +60,7 @@ function renderReports(){
 
   const canEditOwn = isLeader() && state.user.reportEditingEnabled === true;
   const isAdmin = isSiteAdmin();
-  const isStaffUser = isStaff();
+  const isStaffUser = isStaff() || isAdmin;
 
   list.innerHTML = rows.map(r => `
     <div class="report-item${r.deleted ? ' is-deleted' : ''}">
@@ -216,7 +216,7 @@ function openCuratorCommentModal(id){
 }
 
 async function saveCuratorComment(id){
-  if (!isStaff() || !curates(_reports.find(x => x.id === id)?.factionId)) return;
+  if ((!isStaff() && !isSiteAdmin()) || !curates(_reports.find(x => x.id === id)?.factionId)) return;
   const btn = document.getElementById('curatorCommentSaveBtn');
   const comment = document.getElementById('curatorCommentText').value.trim();
   setLoading(btn, true);
@@ -239,7 +239,7 @@ async function saveCuratorComment(id){
 }
 
 async function markReportViewed(id){
-  if (!isStaff() || !curates(_reports.find(x => x.id === id)?.factionId)) return;
+  if ((!isStaff() && !isSiteAdmin()) || !curates(_reports.find(x => x.id === id)?.factionId)) return;
   try {
     await db.collection('reports').doc(id).update({
       viewedByCurator: true,
